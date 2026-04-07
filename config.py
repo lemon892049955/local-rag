@@ -52,3 +52,14 @@ PORT = int(os.getenv("PORT", "8900"))
 
 # ===== ChromaDB =====
 CHROMA_COLLECTION_NAME = "knowledge_chunks"
+
+# ===== 企业微信 =====
+def get_wecom_config() -> dict:
+    """获取企业微信配置"""
+    return {
+        "corp_id": os.getenv("WECOM_CORP_ID", ""),          # 企业 ID
+        "secret": os.getenv("WECOM_SECRET", ""),             # 应用 Secret
+        "agent_id": int(os.getenv("WECOM_AGENT_ID", "0")),  # 应用 AgentID
+        "token": os.getenv("WECOM_TOKEN", ""),               # 回调 Token
+        "encoding_aes_key": os.getenv("WECOM_ENCODING_AES_KEY", ""),  # 回调 EncodingAESKey
+    }

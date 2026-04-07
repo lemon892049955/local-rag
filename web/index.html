@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="zh-CN" x-data="app()" x-init="init()">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Local RAG - 个人知识库</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: { 50:'#f0f5ff', 100:'#dbe8fe', 200:'#bfd3fe', 400:'#7ba4f7', 500:'#5b8af5', 600:'#3b6ce4', 700:'#2d55c4', 800:'#1e3a8a' }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        [x-cloak] { display: none !important; }
+        .prose h1 { font-size: 1.5rem; font-weight: 700; margin: 1rem 0 .5rem; }
+        .prose h2 { font-size: 1.25rem; font-weight: 600; margin: 1rem 0 .5rem; color: #1e3a8a; }
+        .prose h3 { font-size: 1.1rem; font-weight: 600; margin: .75rem 0 .25rem; }
+        .prose p { margin: .5rem 0; line-height: 1.75; }
+        .prose ul, .prose ol { margin: .5rem 0; padding-left: 1.5rem; }
+        .prose li { margin: .25rem 0; }
+        .prose blockquote { border-left: 3px solid #5b8af5; padding-left: 1rem; color: #555; margin: .75rem 0; }
+        .prose code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: .9em; }
+        .prose pre { background: #1e293b; color: #e2e8f0; padding: 1rem; border-radius: 8px; overflow-x: auto; margin: .75rem 0; }
+        .prose pre code { background: none; padding: 0; color: inherit; }
+        .fade-in { animation: fadeIn .3s ease-in; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        .card-hover { transition: all .2s; }
+        .card-hover:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(0,0,0,.08); }
+        .tag { display: inline-block; padding: 2px 10px; border-radius: 9999px; font-size: .75rem; font-weight: 500; }
+        .spinner { border: 3px solid #e5e7eb; border-top-color: #5b8af5; border-radius: 50%; width: 20px; height: 20px; animation: spin .6s linear infinite; display: inline-block; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+<!-- 顶部导航 -->
+<nav class="bg-white border-b border-gray-200 sticky top-0 z-50 backdrop-blur bg-white/90">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
+        <div class="flex items-center gap-2 cursor-pointer" @click="page='home'">
+            <div class="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center">
+                <svg class="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path></svg>
+            </div>
+            <span class="font-bold text-gray-800 text-lg">Local RAG</span>
+            <span class="text-xs text-gray-400 hidden sm:inline">个人知识库</span>
+        </div>
+        <div class="flex items-center gap-1">
+            <button @click="page='home'" :class="page==='home' ? 'bg-brand-50 text-brand-700' : 'text-gray-500 hover:text-gray-700'" class="px-3 py-1.5 rounded-lg text-sm font-medium transition">首页</button>
+            <button @click="page='ingest'" :class="page==='ingest' ? 'bg-brand-50 text-brand-700' : 'text-gray-500 hover:text-gray-700'" class="px-3 py-1.5 rounded-lg text-sm font-medium transition">入库</button>
+            <button @click="page='search'" :class="page==='search' ? 'bg-brand-50 text-brand-700' : 'text-gray-500 hover:text-gray-700'" class="px-3 py-1.5 rounded-lg text-sm font-medium transition">搜索</button>
+        </div>
+    </div>
+</nav>
+
+<main class="max-w-6xl mx-auto px-4 sm:px-6 py-6">
+
+    <!-- ===== 首页 ===== -->
+    <div x-show="page==='home'" x-cloak class="fade-in">
+        <!-- 统计卡片 -->
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-8">
+            <div class="bg-white rounded-xl p-5 border border-gray-100">
+                <div class="text-3xl font-bold text-brand-600" x-text="stats.knowledge_files || 0"></div>
+                <div class="text-sm text-gray-500 mt-1">知识文件</div>
+            </div>
+            <div class="bg-white rounded-xl p-5 border border-gray-100">
+                <div class="text-3xl font-bold text-brand-600" x-text="stats.total_chunks || 0"></div>
+                <div class="text-sm text-gray-500 mt-1">索引切片</div>
+            </div>
+            <div class="bg-white rounded-xl p-5 border border-gray-100 hidden sm:block">
+                <div class="text-3xl font-bold text-green-600">3</div>
+                <div class="text-sm text-gray-500 mt-1">支持平台</div>
+            </div>
+        </div>
+
+        <!-- 快捷操作 -->
+        <div class="flex gap-3 mb-6">
+            <button @click="page='ingest'" class="bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                入库新知识
+            </button>
+            <button @click="page='search'" class="bg-white hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium border border-gray-200 transition flex items-center gap-2">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                搜索知识库
+            </button>
+        </div>
+
+        <!-- 知识列表 -->
+        <h2 class="text-lg font-semibold text-gray-800 mb-4">知识库</h2>
+        <div x-show="knowledgeList.length === 0" class="text-center py-16 text-gray-400">
+            <svg class="w-16 h-16 mx-auto mb-4 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+            <p>知识库为空，去入库第一篇内容吧</p>
+        </div>
+        <div class="space-y-3">
+            <template x-for="item in knowledgeList" :key="item.file_path">
+                <div class="bg-white rounded-xl p-5 border border-gray-100 card-hover cursor-pointer" @click="openDetail(item)">
+                    <div class="flex items-start justify-between gap-4">
+                        <div class="flex-1 min-w-0">
+                            <h3 class="font-semibold text-gray-800 truncate" x-text="item.title"></h3>
+                            <p class="text-sm text-gray-500 mt-1 line-clamp-2" x-text="item.summary"></p>
+                            <div class="flex items-center gap-2 mt-3 flex-wrap">
+                                <template x-for="tag in (item.tags || [])" :key="tag">
+                                    <span class="tag bg-brand-50 text-brand-700" x-text="tag"></span>
+                                </template>
+                                <span class="tag bg-gray-100 text-gray-500" x-text="platformLabel(item.source_platform)"></span>
+                                <span class="text-xs text-gray-400 ml-auto" x-text="(item.created_at || '').slice(0,10)"></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </template>
+        </div>
+    </div>
+
+    <!-- ===== 详情页 ===== -->
+    <div x-show="page==='detail'" x-cloak class="fade-in">
+        <button @click="page='home'" class="text-sm text-brand-600 hover:text-brand-800 mb-4 flex items-center gap-1">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
+            返回列表
+        </button>
+        <div x-show="detailLoading" class="text-center py-16"><div class="spinner"></div></div>
+        <div x-show="!detailLoading && detailData" class="bg-white rounded-xl border border-gray-100 overflow-hidden">
+            <!-- 头部元数据 -->
+            <div class="p-6 border-b border-gray-100">
+                <h1 class="text-xl font-bold text-gray-900" x-text="detailData?.meta?.title || ''"></h1>
+                <p class="text-sm text-gray-500 mt-2" x-text="detailData?.meta?.summary || ''"></p>
+                <div class="flex items-center gap-2 mt-3 flex-wrap">
+                    <template x-for="tag in (detailData?.meta?.tags || [])" :key="tag">
+                        <span class="tag bg-brand-50 text-brand-700" x-text="tag"></span>
+                    </template>
+                    <span class="text-xs text-gray-400" x-text="detailData?.meta?.author ? '作者: ' + detailData.meta.author : ''"></span>
+                    <a :href="detailData?.meta?.source_url" target="_blank" x-show="detailData?.meta?.source_url" class="text-xs text-brand-500 hover:underline ml-auto">查看原文</a>
+                </div>
+            </div>
+            <!-- 正文 -->
+            <div class="p-6 prose max-w-none" x-html="renderMarkdown(detailData?.content || '')"></div>
+        </div>
+    </div>
+
+    <!-- ===== 入库 ===== -->
+    <div x-show="page==='ingest'" x-cloak class="fade-in">
+        <div class="max-w-2xl mx-auto">
+            <h2 class="text-xl font-bold text-gray-800 mb-2">入库新知识</h2>
+            <p class="text-sm text-gray-500 mb-6">粘贴文章链接，系统自动抓取、清洗、落库、索引。支持公众号、小红书、通用网页。</p>
+
+            <div class="bg-white rounded-xl border border-gray-100 p-6">
+                <label class="block text-sm font-medium text-gray-700 mb-2">文章链接</label>
+                <div class="flex gap-2">
+                    <input x-model="ingestUrl" type="url" placeholder="https://mp.weixin.qq.com/s/..." 
+                        class="flex-1 border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent" 
+                        @keydown.enter="doIngest()" :disabled="ingestLoading">
+                    <button @click="doIngest()" :disabled="ingestLoading || !ingestUrl.trim()" 
+                        class="bg-brand-600 hover:bg-brand-700 disabled:bg-gray-300 text-white px-5 py-2.5 rounded-lg text-sm font-medium transition flex items-center gap-2 whitespace-nowrap">
+                        <div x-show="ingestLoading" class="spinner" style="width:16px;height:16px;border-width:2px;"></div>
+                        <span x-text="ingestLoading ? '处理中...' : '开始入库'"></span>
+                    </button>
+                </div>
+
+                <!-- 进度条 -->
+                <div x-show="ingestStep" class="mt-4 space-y-2">
+                    <template x-for="(step, i) in ingestSteps" :key="i">
+                        <div class="flex items-center gap-2 text-sm" :class="i < ingestStep ? 'text-green-600' : i === ingestStep ? 'text-brand-600' : 'text-gray-300'">
+                            <template x-if="i < ingestStep"><svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg></template>
+                            <template x-if="i === ingestStep"><div class="spinner" style="width:14px;height:14px;border-width:2px;"></div></template>
+                            <template x-if="i > ingestStep"><div class="w-4 h-4 rounded-full border-2 border-gray-200"></div></template>
+                            <span x-text="step"></span>
+                        </div>
+                    </template>
+                </div>
+
+                <!-- 结果 -->
+                <div x-show="ingestResult" class="mt-4 p-4 rounded-lg" :class="ingestResult?.success ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'">
+                    <div class="flex items-start gap-2">
+                        <template x-if="ingestResult?.success">
+                            <svg class="w-5 h-5 text-green-500 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path></svg>
+                        </template>
+                        <div>
+                            <div class="font-medium text-sm" x-text="ingestResult?.success ? '入库成功!' : '入库失败'"></div>
+                            <div class="text-sm mt-1" x-text="ingestResult?.title ? '标题: ' + ingestResult.title : ingestResult?.error || ''"></div>
+                            <div class="flex gap-1 mt-2 flex-wrap" x-show="ingestResult?.tags?.length">
+                                <template x-for="tag in (ingestResult?.tags || [])" :key="tag">
+                                    <span class="tag bg-green-100 text-green-700" x-text="tag"></span>
+                                </template>
+                            </div>
+                            <div class="text-xs text-gray-500 mt-1" x-text="ingestResult?.message || ''"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== 搜索 ===== -->
+    <div x-show="page==='search'" x-cloak class="fade-in">
+        <div class="max-w-3xl mx-auto">
+            <h2 class="text-xl font-bold text-gray-800 mb-2">知识搜索</h2>
+            <p class="text-sm text-gray-500 mb-6">用自然语言提问，从知识库中智能检索并生成答案。</p>
+
+            <div class="flex gap-2 mb-6">
+                <input x-model="searchQuery" type="text" placeholder="例如：Vibe Coding 的核心流程是什么？" 
+                    class="flex-1 border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent bg-white"
+                    @keydown.enter="doSearch()" :disabled="searchLoading">
+                <button @click="doSearch()" :disabled="searchLoading || !searchQuery.trim()"
+                    class="bg-brand-600 hover:bg-brand-700 disabled:bg-gray-300 text-white px-5 py-2.5 rounded-lg text-sm font-medium transition flex items-center gap-2 whitespace-nowrap">
+                    <div x-show="searchLoading" class="spinner" style="width:16px;height:16px;border-width:2px;"></div>
+                    <span x-text="searchLoading ? '检索中...' : '搜索'"></span>
+                </button>
+            </div>
+
+            <!-- 搜索结果 -->
+            <div x-show="searchResult" class="fade-in space-y-4">
+                <div class="bg-white rounded-xl border border-gray-100 p-6">
+                    <div class="flex items-center gap-2 mb-3">
+                        <svg class="w-5 h-5 text-brand-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path></svg>
+                        <h3 class="font-semibold text-gray-800">AI 回答</h3>
+                    </div>
+                    <div class="prose text-sm" x-html="renderMarkdown(searchResult?.answer || '')"></div>
+                </div>
+
+                <!-- 参考来源 -->
+                <div x-show="searchResult?.sources?.length" class="space-y-2">
+                    <h4 class="text-sm font-medium text-gray-500">参考来源</h4>
+                    <template x-for="(src, i) in (searchResult?.sources || [])" :key="i">
+                        <div class="bg-white rounded-lg border border-gray-100 p-3 flex items-center gap-3">
+                            <div class="w-6 h-6 bg-brand-50 text-brand-600 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0" x-text="i+1"></div>
+                            <div class="flex-1 min-w-0">
+                                <div class="text-sm font-medium text-gray-700 truncate" x-text="src.title"></div>
+                                <div class="text-xs text-gray-400" x-text="'相似度距离: ' + src.distance"></div>
+                            </div>
+                            <a :href="src.source_url" target="_blank" x-show="src.source_url" class="text-xs text-brand-500 hover:underline flex-shrink-0">原文</a>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</main>
+
+<script>
+function app() {
+    return {
+        page: 'home',
+        stats: {},
+        knowledgeList: [],
+
+        // Detail
+        detailData: null,
+        detailLoading: false,
+
+        // Ingest
+        ingestUrl: '',
+        ingestLoading: false,
+        ingestStep: 0,
+        ingestSteps: ['抓取网页内容', 'LLM 结构化清洗', 'Markdown 落库', '向量索引'],
+        ingestResult: null,
+
+        // Search
+        searchQuery: '',
+        searchLoading: false,
+        searchResult: null,
+
+        async init() {
+            await this.loadStats();
+            await this.loadKnowledgeList();
+        },
+
+        async loadStats() {
+            try {
+                const r = await fetch('/stats');
+                this.stats = await r.json();
+            } catch(e) { console.error(e); }
+        },
+
+        async loadKnowledgeList() {
+            try {
+                const r = await fetch('/api/knowledge');
+                const data = await r.json();
+                this.knowledgeList = data.items || [];
+            } catch(e) { console.error(e); }
+        },
+
+        async openDetail(item) {
+            this.page = 'detail';
+            this.detailLoading = true;
+            this.detailData = null;
+            try {
+                const filename = item.file_path.split('/').pop();
+                const r = await fetch('/api/knowledge/' + encodeURIComponent(filename));
+                this.detailData = await r.json();
+            } catch(e) { console.error(e); }
+            this.detailLoading = false;
+        },
+
+        async doIngest() {
+            if (!this.ingestUrl.trim() || this.ingestLoading) return;
+            this.ingestLoading = true;
+            this.ingestResult = null;
+            this.ingestStep = 0;
+
+            // 模拟步骤进度
+            const stepInterval = setInterval(() => {
+                if (this.ingestStep < 3) this.ingestStep++;
+            }, 3000);
+
+            try {
+                const r = await fetch('/ingest', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: this.ingestUrl.trim() })
+                });
+                clearInterval(stepInterval);
+                this.ingestStep = 4;
+
+                if (r.ok) {
+                    const data = await r.json();
+                    this.ingestResult = data;
+                    this.ingestUrl = '';
+                    await this.loadKnowledgeList();
+                    await this.loadStats();
+                } else {
+                    const err = await r.json();
+                    this.ingestResult = { success: false, error: err.detail || '入库失败' };
+                }
+            } catch(e) {
+                clearInterval(stepInterval);
+                this.ingestResult = { success: false, error: '网络错误: ' + e.message };
+            }
+            this.ingestLoading = false;
+        },
+
+        async doSearch() {
+            if (!this.searchQuery.trim() || this.searchLoading) return;
+            this.searchLoading = true;
+            this.searchResult = null;
+            try {
+                const r = await fetch('/search', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query: this.searchQuery.trim(), top_k: 3 })
+                });
+                if (r.ok) {
+                    this.searchResult = await r.json();
+                }
+            } catch(e) { console.error(e); }
+            this.searchLoading = false;
+        },
+
+        platformLabel(p) {
+            const map = { wechat: '公众号', xiaohongshu: '小红书', general: '网页', manual: '手动' };
+            return map[p] || p || '未知';
+        },
+
+        renderMarkdown(md) {
+            if (!md) return '';
+            try { return marked.parse(md); } catch(e) { return md; }
+        }
+    }
+}
+</script>
+</body>
+</html>

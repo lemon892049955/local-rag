@@ -1,15 +1,21 @@
 """FastAPI 主入口
 
-暴露两个核心端点:
-- POST /ingest  - 入库 (URL -> 抓取 -> 清洗 -> 落库 -> 索引)
-- POST /search  - 检索 (查询 -> 向量召回 -> LLM 答案生成)
+暴露核心端点:
+- POST /ingest       - 入库 (URL -> 抓取 -> 清洗 -> 落库 -> 索引)
+- POST /ingest/text  - 手动入库
+- POST /search       - 检索 (查询 -> 向量召回 -> LLM 答案生成)
+- GET  /api/knowledge      - 知识列表
+- GET  /api/knowledge/{id} - 知识详情
 """
 
+from pathlib import Path
 from fastapi import FastAPI, HTTPException
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, HttpUrl
 from typing import List, Optional
 
-from config import DATA_DIR
+from config import DATA_DIR, BASE_DIR
 from ingestion.router import FetcherRouter
 from transform.llm_cleaner import LLMCleaner
 from storage.markdown_engine import MarkdownEngine
@@ -20,8 +26,12 @@ from utils.url_utils import normalize_url, check_duplicate
 app = FastAPI(
     title="Local RAG - 个人碎片知识落库系统",
     description="本地化优先的个人知识资产管理与 RAG 问答系统",
-    version="1.0.0",
+    version="0.2.0",
 )
+
+# 注册企业微信回调路由
+from wecom.callback import router as wecom_router
+app.include_router(wecom_router)
 
 # 全局组件（延迟初始化以加速启动）
 _router = None
@@ -191,13 +201,64 @@ async def stats():
 
 @app.get("/")
 async def root():
+    """首页 - 返回 Web UI"""
+    index_path = BASE_DIR / "web" / "index.html"
+    if index_path.exists():
+        return FileResponse(index_path)
+    return {"name": "Local RAG", "version": "0.2.0", "hint": "Web UI not found, visit /docs"}
+
+
+# ===== 知识库 API =====
+
+@app.get("/api/knowledge")
+async def list_knowledge():
+    """知识列表 - 返回所有已落库文件的元数据"""
+    files = get_engine().list_all()
+    return {"items": files, "total": len(files)}
+
+
+@app.get("/api/knowledge/{filename}")
+async def get_knowledge(filename: str):
+    """知识详情 - 返回某篇文件的元数据 + 正文"""
+    filepath = DATA_DIR / filename
+    if not filepath.exists() or not filepath.suffix == ".md":
+        raise HTTPException(status_code=404, detail="文件不存在")
+
+    content = filepath.read_text(encoding="utf-8")
+
+    # 解析 front-matter 和正文
+    meta = {}
+    body = content
+    if content.startswith("---"):
+        parts = content.split("---", 2)
+        if len(parts) >= 3:
+            import yaml
+            meta = yaml.safe_load(parts[1]) or {}
+            body = parts[2].strip()
+
     return {
-        "name": "Local RAG - 个人碎片知识落库系统",
-        "version": "1.0.0",
-        "endpoints": {
-            "POST /ingest": "入库 - 发送 URL 自动抓取清洗落库",
-            "POST /search": "检索 - 自然语言查询知识库",
-            "POST /reindex": "重建索引 - 从 .md 文件恢复",
-            "GET /stats": "系统状态统计",
-        },
+        "filename": filename,
+        "meta": meta,
+        "content": body,
     }
+
+
+@app.delete("/api/knowledge/{filename}")
+async def delete_knowledge(filename: str):
+    """删除知识文件"""
+    filepath = DATA_DIR / filename
+    if not filepath.exists():
+        raise HTTPException(status_code=404, detail="文件不存在")
+    filepath.unlink()
+    # 重建索引
+    try:
+        get_indexer().reindex_all()
+    except Exception:
+        pass
+    return {"success": True, "message": f"已删除: {filename}"}
+
+
+# ===== 静态文件 =====
+WEB_DIR = BASE_DIR / "web"
+WEB_DIR.mkdir(exist_ok=True)
+app.mount("/static", StaticFiles(directory=str(WEB_DIR)), name="static")
