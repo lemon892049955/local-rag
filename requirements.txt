@@ -1,0 +1,23 @@
+# Web Framework
+fastapi==0.115.6
+uvicorn==0.34.0
+
+# HTTP & Scraping
+requests==2.32.3
+beautifulsoup4==4.12.3
+readability-lxml==0.8.1
+lxml==5.3.0
+
+# LLM Clients
+openai==1.58.1          # Kimi/DeepSeek 都兼容 OpenAI 接口
+
+# Vector DB & Embedding
+chromadb==0.5.23
+sentence-transformers==3.3.1
+
+# Markdown / YAML
+pyyaml==6.0.2
+
+# Utilities
+python-dotenv==1.0.1
+shortuuid==1.0.13
