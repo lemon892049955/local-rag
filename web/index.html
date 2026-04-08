@@ -31,17 +31,41 @@
         .dark .sidebar-item:hover{background:#1e293b}
         .dark .sidebar-item.active{background:#312e81;color:#a5b4fc}
         /* 通用 */
-        .prose h1{font-size:1.5rem;font-weight:700;margin:1rem 0 .5rem}
-        .prose h2{font-size:1.25rem;font-weight:600;margin:1rem 0 .5rem;color:#4f46e5}
-        .prose h3{font-size:1.1rem;font-weight:600;margin:.75rem 0 .25rem}
-        .prose p{margin:.5rem 0;line-height:1.75}
-        .prose ul,.prose ol{margin:.5rem 0;padding-left:1.5rem}
-        .prose li{margin:.25rem 0}
-        .prose blockquote{border-left:3px solid #6366f1;padding-left:1rem;color:#64748b;margin:.75rem 0}
-        .prose code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-size:.9em}
-        .prose pre{background:#1e293b;color:#e2e8f0;padding:1rem;border-radius:8px;overflow-x:auto;margin:.75rem 0}
-        .prose pre code{background:none;padding:0;color:inherit}
-        .dark .prose code{background:#334155}
+        .prose h1{font-size:1.6rem;font-weight:700;margin:1.5rem 0 .75rem;padding-bottom:.5rem;border-bottom:2px solid #e2e8f0}
+        .prose h2{font-size:1.3rem;font-weight:600;margin:1.25rem 0 .5rem;color:#4f46e5;padding-bottom:.3rem;border-bottom:1px solid #eef2ff}
+        .prose h3{font-size:1.1rem;font-weight:600;margin:1rem 0 .4rem;color:#475569}
+        .prose h4{font-size:1rem;font-weight:600;margin:.75rem 0 .25rem;color:#64748b}
+        .prose p{margin:.6rem 0;line-height:1.8;color:#374151}
+        .prose ul,.prose ol{margin:.6rem 0;padding-left:1.75rem}
+        .prose ul{list-style-type:disc}
+        .prose ol{list-style-type:decimal}
+        .prose li{margin:.3rem 0;line-height:1.7}
+        .prose li>ul,.prose li>ol{margin:.2rem 0}
+        .prose blockquote{border-left:4px solid #6366f1;padding:.75rem 1rem;color:#64748b;margin:.75rem 0;background:#f8fafc;border-radius:0 8px 8px 0}
+        .prose code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-size:.88em;color:#e11d48;font-family:'Menlo','Monaco',monospace}
+        .prose pre{background:#1e293b;color:#e2e8f0;padding:1rem;border-radius:8px;overflow-x:auto;margin:.75rem 0;line-height:1.6}
+        .prose pre code{background:none;padding:0;color:inherit;font-size:.85em}
+        .prose a{color:#4f46e5;text-decoration:underline;text-underline-offset:2px}
+        .prose a:hover{color:#4338ca}
+        .prose hr{border:none;border-top:1px solid #e2e8f0;margin:1.5rem 0}
+        .prose table{width:100%;border-collapse:collapse;margin:.75rem 0;font-size:.9em}
+        .prose th{background:#f8fafc;padding:8px 12px;border:1px solid #e2e8f0;font-weight:600;text-align:left}
+        .prose td{padding:8px 12px;border:1px solid #e2e8f0}
+        .prose tr:hover{background:#f8fafc}
+        .prose img{max-width:100%;border-radius:8px;margin:.75rem 0}
+        .prose strong{font-weight:600;color:#1e293b}
+        .dark .prose p,.dark .prose li{color:#cbd5e1}
+        .dark .prose h1{border-bottom-color:#334155}
+        .dark .prose h2{border-bottom-color:#1e1b4b}
+        .dark .prose h3,.dark .prose h4{color:#94a3b8}
+        .dark .prose blockquote{background:#1e293b;border-left-color:#818cf8;color:#94a3b8}
+        .dark .prose code{background:#334155;color:#f472b6}
+        .dark .prose a{color:#818cf8}
+        .dark .prose th{background:#1e293b}
+        .dark .prose td{border-color:#334155}
+        .dark .prose tr:hover{background:#1e293b}
+        .dark .prose strong{color:#f1f5f9}
+        .dark .prose hr{border-top-color:#334155}
         .fade-in{animation:fadeIn .3s ease}
         @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
         .card-hover{transition:all .2s}.card-hover:hover{transform:translateY(-2px);box-shadow:0 8px 25px rgba(0,0,0,.08)}
@@ -269,10 +293,20 @@
 
     <!-- ===== 详情页 ===== -->
     <div x-show="page==='detail'" x-cloak class="fade-in">
-        <div class="h-12 flex items-center px-5 border-b border-gray-100 bg-white/80 backdrop-blur">
-            <button @click="page=prevPage||'index'" class="text-xs text-brand-600 hover:text-brand-800 flex items-center gap-1">
+        <div class="h-12 flex items-center justify-between px-5 border-b border-gray-100 bg-white/80 backdrop-blur">
+            <button @click="page=prevPage||'index';editMode=false" class="text-xs text-brand-600 hover:text-brand-800 flex items-center gap-1">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>返回
             </button>
+            <div class="flex items-center gap-2" x-show="detailData&&!detailLoading">
+                <button x-show="!editMode" @click="editMode=true;editContent=detailData?.content||''" class="text-xs text-gray-500 hover:text-brand-600 flex items-center gap-1 px-3 py-1.5 rounded-lg hover:bg-brand-50 transition">
+                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>编辑
+                </button>
+                <button x-show="editMode" @click="saveEdit()" :disabled="editSaving" class="text-xs text-white bg-brand-600 hover:bg-brand-700 px-3 py-1.5 rounded-lg transition flex items-center gap-1">
+                    <span x-show="editSaving" class="spinner" style="width:12px;height:12px;border-width:2px"></span>
+                    <span x-text="editSaving?'保存中...':'保存'"></span>
+                </button>
+                <button x-show="editMode" @click="editMode=false" class="text-xs text-gray-500 hover:text-gray-700 px-3 py-1.5 rounded-lg hover:bg-gray-100 transition">取消</button>
+            </div>
         </div>
         <div class="p-5 max-w-5xl mx-auto">
             <div x-show="detailLoading" class="text-center py-16"><div class="spinner"></div></div>
@@ -286,7 +320,13 @@
                         <a :href="detailData?.meta?.source_url" target="_blank" x-show="detailData?.meta?.source_url" class="text-xs text-brand-500 hover:underline ml-auto">查看原文 ↗</a>
                     </div>
                 </div>
-                <div class="p-6 prose max-w-none" x-html="renderMd(detailData?.content||'')"></div>
+                <!-- 阅读模式 -->
+                <div x-show="!editMode" class="p-6 prose max-w-none" x-html="renderMd(detailData?.content||'')"></div>
+                <!-- 编辑模式 -->
+                <div x-show="editMode" class="p-6">
+                    <div class="text-xs text-gray-400 mb-2">Markdown 编辑 · 保存后自动重建索引</div>
+                    <textarea x-model="editContent" class="w-full min-h-[500px] border border-gray-200 rounded-lg p-4 text-sm font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white dark:bg-surface-900 dark:text-gray-200 dark:border-gray-600 resize-y" spellcheck="false"></textarea>
+                </div>
             </div>
         </div>
     </div>
@@ -391,6 +431,24 @@
                         <span x-text="'更新于 '+(wikiDetailData?.meta?.updated_at||'')"></span>
                     </div>
                 </div>
+
+                <!-- 关联文章列表 -->
+                <div x-show="(wikiDetailData?.meta?.sources||[]).length>0" class="px-6 py-4 border-b border-gray-100 bg-gray-50/50">
+                    <div class="text-xs font-semibold text-gray-500 mb-2 flex items-center gap-1.5">
+                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
+                        关联文章
+                    </div>
+                    <div class="space-y-1.5">
+                        <template x-for="src in (wikiDetailData?.meta?.sources||[])" :key="src">
+                            <div @click="openDetailByFilename(src)" class="flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-gray-100 cursor-pointer hover:border-brand-300 hover:bg-brand-50/50 transition group">
+                                <span class="platform-icon text-[9px]" :class="platformBg(guessPlatform(src))" x-text="platformEmoji(guessPlatform(src))"></span>
+                                <span class="text-xs font-medium text-gray-700 group-hover:text-brand-600 truncate" x-text="formatSourceTitle(src)"></span>
+                                <svg class="w-3.5 h-3.5 text-gray-300 group-hover:text-brand-500 ml-auto flex-shrink-0 transition" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
                 <div class="p-6 prose max-w-none" x-html="renderMd(wikiDetailData?.body||'')"></div>
             </div>
         </div>
@@ -665,7 +723,7 @@ function app(){
         stats:{knowledge_files:0,total_chunks:0},
         categories:[],knowledgeList:[],filteredList:[],activeCategory:'',
         tagStats:[],timeline:[],
-        detailData:null,detailLoading:false,
+        detailData:null,detailLoading:false,editMode:false,editContent:'',editSaving:false,
         hoveredNode:null,tooltipX:0,tooltipY:0,
         ingestUrl:'',ingestLoading:false,ingestResult:null,
         uploadLoading:false,uploadStatus:'',
@@ -779,8 +837,12 @@ function app(){
         filterCategory(cat){this.activeCategory=cat.name;this.filteredList=cat.items;this.page='index'},
         searchByTag(tag){this.activeCategory=tag;this.filteredList=this.knowledgeList.filter(i=>(i.tags||[]).includes(tag));this.page='index'},
         doQuickSearch(){if(this.quickSearch.trim()){this.searchQuery=this.quickSearch;this.quickSearch='';this.page='search';this.$nextTick(()=>this.doSearch())}},
-        async openDetail(item){this.prevPage=this.page;this.page='detail';this.detailLoading=true;this.detailData=null;try{const fn=item.file_path.split('/').pop();this.detailData=await(await fetch('/api/knowledge/'+encodeURIComponent(fn))).json()}catch(e){}this.detailLoading=false},
+        async openDetail(item){this.prevPage=this.page;this.page='detail';this.detailLoading=true;this.detailData=null;this.editMode=false;try{const fn=item.file_path.split('/').pop();this.detailData=await(await fetch('/api/knowledge/'+encodeURIComponent(fn))).json()}catch(e){}this.detailLoading=false},
         openDetailByPath(path){const item=this.knowledgeList.find(i=>i.file_path===path);if(item)this.openDetail(item)},
+        openDetailByFilename(fn){const item=this.knowledgeList.find(i=>i.file_path.endsWith(fn));if(item){this.openDetail(item)}else{this.prevPage=this.page;this.page='detail';this.detailLoading=true;this.detailData=null;this.editMode=false;fetch('/api/knowledge/'+encodeURIComponent(fn)).then(r=>r.json()).then(d=>{this.detailData=d;this.detailLoading=false}).catch(()=>{this.detailLoading=false})}},
+        async saveEdit(){if(!this.editContent.trim()||this.editSaving)return;this.editSaving=true;try{const fn=this.detailData?.filename;const r=await fetch('/api/knowledge/'+encodeURIComponent(fn),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:this.editContent})});if(r.ok){this.detailData.content=this.editContent;this.editMode=false}}catch(e){}this.editSaving=false},
+        formatSourceTitle(fn){return fn.replace(/^\d{6}_[a-zA-Z0-9]+_/,'').replace(/\.md$/,'').replace(/_/g,' ')},
+        guessPlatform(fn){if(fn.includes('公众号')||fn.includes('wechat'))return'wechat';if(fn.includes('小红书')||fn.includes('xiaohongshu'))return'xiaohongshu';return'general'},
         async doIngest(){if(!this.ingestUrl.trim()||this.ingestLoading)return;this.ingestLoading=true;this.ingestResult=null;try{const r=await fetch('/ingest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:this.ingestUrl.trim()})});if(r.ok){this.ingestResult=await r.json();this.ingestUrl='';await Promise.all([this.loadKnowledge(),this.loadStats(),this.loadCategories(),this.loadTags(),this.loadTimeline(),this.loadWikiPages(),this.loadWikiGraph()])}else{const e=await r.json();this.ingestResult={success:false,error:e.detail||'失败'}}}catch(e){this.ingestResult={success:false,error:e.message}}this.ingestLoading=false},
         async doSearch(){if(!this.searchQuery.trim()||this.searchLoading)return;this.searchLoading=true;this.searchResult=null;try{const r=await fetch('/search',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:this.searchQuery.trim(),top_k:3})});if(r.ok)this.searchResult=await r.json()}catch(e){}this.searchLoading=false},
 

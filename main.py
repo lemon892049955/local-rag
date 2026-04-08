@@ -502,6 +502,45 @@ async def get_knowledge(filename: str):
     }
 
 
+@app.put("/api/knowledge/{filename}")
+async def update_knowledge(filename: str, req: dict):
+    """编辑知识文件 — 支持修改正文内容"""
+    filepath = DATA_DIR / filename
+    if not filepath.exists() or not filepath.suffix == ".md":
+        raise HTTPException(status_code=404, detail="文件不存在")
+
+    import yaml
+    from datetime import datetime
+
+    content = filepath.read_text(encoding="utf-8")
+    meta = {}
+    if content.startswith("---"):
+        parts = content.split("---", 2)
+        if len(parts) >= 3:
+            meta = yaml.safe_load(parts[1]) or {}
+
+    # 更新正文
+    new_body = req.get("content", "").strip()
+    if not new_body:
+        raise HTTPException(status_code=400, detail="内容不能为空")
+
+    # 更新 meta
+    meta["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # 重建文件
+    yaml_str = yaml.dump(meta, default_flow_style=False, allow_unicode=True, sort_keys=False).strip()
+    new_content = f"---\n{yaml_str}\n---\n\n{new_body}\n"
+    filepath.write_text(new_content, encoding="utf-8")
+
+    # 重建该文件的向量索引
+    try:
+        get_indexer().index_file(filepath)
+    except Exception:
+        pass
+
+    return {"success": True, "message": "已保存", "filename": filename}
+
+
 @app.delete("/api/knowledge/{filename}")
 async def delete_knowledge(filename: str):
     """删除知识文件"""
