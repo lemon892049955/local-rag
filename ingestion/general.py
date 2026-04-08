@@ -2,12 +2,15 @@
 
 import json
 import re
+import logging
 import requests
 from readability import Document
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
 
 from .base import BaseFetcher, RawContent, FetchError
+
+logger = logging.getLogger(__name__)
 
 
 class GeneralFetcher(BaseFetcher):
@@ -290,3 +293,17 @@ class GeneralFetcher(BaseFetcher):
                 )
 
         raise FetchError(url, "无法从知乎 SSR 数据中解析内容")
+
+    def _extract_images(self, html: str) -> list:
+        """从 HTML 中提取有意义的图片 URL"""
+        soup = BeautifulSoup(html, "lxml")
+        urls = []
+        for img in soup.find_all("img"):
+            src = img.get("data-original") or img.get("data-actualsrc") or img.get("src") or ""
+            if not src or not src.startswith("http"):
+                continue
+            # 过滤小图标/表情/头像
+            if any(skip in src for skip in ["emoji", "avatar", "icon", "logo", "gif"]):
+                continue
+            urls.append(src)
+        return urls

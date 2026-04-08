@@ -145,9 +145,25 @@ async def receive_msg(
             background_tasks.add_task(process_media_ingest, from_user, media_id, "voice")
             send_text_msg(from_user, "🎤 已收到语音，正在转录...")
 
+    # 处理文件消息 → 按类型分发
+    elif msg_type == "file":
+        media_id = msg.get("MediaId", "")
+        filename = msg.get("FileName", "")
+        if media_id:
+            background_tasks.add_task(process_media_ingest, from_user, media_id, "file", filename)
+            send_text_msg(from_user, f"📄 已收到文件「{filename[:30]}」，正在处理...")
+
+    # 处理视频消息 → 暂仅提示
+    elif msg_type in ("video", "shortvideo"):
+        send_text_msg(from_user, "🎬 暂不支持视频入库，请发送视频的链接或截图。\n视频转录功能即将上线~")
+
+    # 事件消息静默处理
+    elif msg_type == "event":
+        pass
+
     # 其他消息类型
     else:
-        send_text_msg(from_user, "💡 支持：发链接入库、发文字搜索、发图片OCR、发语音转录")
+        send_text_msg(from_user, "💡 支持：发链接入库、发文字搜索、发图片OCR、发语音转录、发PDF文件")
 
     return Response(content="success", media_type="text/plain")
 
@@ -155,23 +171,45 @@ async def receive_msg(
 # ===== 后台任务 =====
 
 async def process_file_ingest(user_id: str, file_url: str, file_type: str):
-    """后台异步处理文件入库（图片 OCR / 音频转录）"""
+    """后台异步处理文件入库（图片 OCR / 音频转录 / PDF 等）
+
+    file_url 可以是 HTTP URL 或本地文件路径。
+    """
     try:
         import tempfile, requests as req
         from ingestion.dispatcher import Dispatcher
-
-        # 下载文件
-        resp = req.get(file_url, timeout=30)
-        resp.raise_for_status()
-
-        suffix = ".png" if file_type == "image" else ".mp3"
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            tmp.write(resp.content)
-            tmp_path = tmp.name
-
         from pathlib import Path
+
+        # 判断是本地路径还是 URL
+        if file_url.startswith("/") or file_url.startswith("C:"):
+            tmp_path = file_url  # 已经是本地路径
+        else:
+            # 下载文件
+            resp = req.get(file_url, timeout=30)
+            resp.raise_for_status()
+
+            suffix_map = {
+                "image": ".png", "voice": ".amr", "file": ".tmp",
+                "pdf": ".pdf", "audio": ".mp3",
+            }
+            suffix = suffix_map.get(file_type, ".tmp")
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                tmp.write(resp.content)
+                tmp_path = tmp.name
+
         dispatcher = Dispatcher()
         raw = await dispatcher.dispatch(tmp_path)
+
+        # 图片 OCR 补充（如果抓取器提取了图片列表）
+        if raw.images:
+            try:
+                from ingestion.vision_ocr import VisionOCR
+                ocr = VisionOCR()
+                ocr_text = await ocr.ocr_multiple_images(raw.images[:5])
+                if ocr_text:
+                    raw.content = raw.content + "\n\n---以下是图片内容---\n\n" + ocr_text
+            except Exception:
+                pass
 
         # 后续复用入库管线
         from transform.llm_cleaner import LLMCleaner
@@ -201,15 +239,16 @@ async def process_file_ingest(user_id: str, file_url: str, file_type: str):
 
         notify_ingest_success(user_id, knowledge.title, knowledge.tags, file_url)
 
-        # 删除临时文件
-        Path(tmp_path).unlink(missing_ok=True)
+        # 删除临时文件（跳过原始本地路径）
+        if tmp_path != file_url:
+            Path(tmp_path).unlink(missing_ok=True)
 
     except Exception as e:
         logger.error(f"文件入库失败: {file_type} - {e}")
         notify_ingest_fail(user_id, str(e), file_url)
 
 
-async def process_media_ingest(user_id: str, media_id: str, media_type: str):
+async def process_media_ingest(user_id: str, media_id: str, media_type: str, filename: str = ""):
     """后台异步处理企微媒体文件（需要通过 media_id 下载）"""
     try:
         from wecom.sender import get_access_token
@@ -222,16 +261,24 @@ async def process_media_ingest(user_id: str, media_id: str, media_type: str):
         resp = req.get(url, timeout=30)
 
         if resp.status_code != 200:
-            send_text_msg(user_id, f"❌ 媒体文件下载失败")
+            send_text_msg(user_id, "❌ 媒体文件下载失败")
             return
 
-        suffix = ".amr" if media_type == "voice" else ".tmp"
+        # 根据类型确定后缀
+        suffix_map = {"voice": ".amr", "file": ".tmp"}
+        suffix = suffix_map.get(media_type, ".tmp")
+        # 文件消息尝试从文件名获取后缀
+        if media_type == "file" and filename:
+            ext = Path(filename).suffix.lower()
+            if ext:
+                suffix = ext
+
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             tmp.write(resp.content)
             tmp_path = tmp.name
 
-        # 语音消息通常是 amr 格式，Whisper 可以直接处理
-        await process_file_ingest(user_id, f"file://{tmp_path}", media_type)
+        # 直接传本地路径（修复 file:// Bug）
+        await process_file_ingest(user_id, tmp_path, media_type)
         Path(tmp_path).unlink(missing_ok=True)
 
     except Exception as e:
@@ -257,6 +304,17 @@ async def process_ingest(user_id: str, url: str):
         # 抓取
         router = FetcherRouter()
         raw = await router.fetch(url)
+
+        # 图片 OCR（如果抓取器提取了图片列表）
+        if raw.images:
+            try:
+                from ingestion.vision_ocr import VisionOCR
+                ocr = VisionOCR()
+                ocr_text = await ocr.ocr_multiple_images(raw.images[:5])
+                if ocr_text:
+                    raw.content = raw.content + "\n\n---以下是图片内容---\n\n" + ocr_text
+            except Exception:
+                pass
 
         # 清洗
         cleaner = LLMCleaner()

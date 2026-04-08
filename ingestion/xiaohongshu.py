@@ -126,6 +126,7 @@ class XiaohongshuFetcher(BaseFetcher):
             desc = ""
             author = ""
             tags = []
+            image_urls = []
 
             if note and note.get("desc"):
                 title = note.get("title", "")
@@ -135,9 +136,18 @@ class XiaohongshuFetcher(BaseFetcher):
                 tag_list = note.get("tagList", [])
                 if isinstance(tag_list, list):
                     tags = [t.get("name", "") for t in tag_list if t.get("name")]
+                # 提取图片列表
+                for img in note.get("imageList", []):
+                    img_url = img.get("urlDefault") or img.get("url") or ""
+                    if img_url and img_url.startswith("http"):
+                        image_urls.append(img_url)
             elif preload and preload.get("desc"):
                 title = preload.get("title", "")
                 desc = preload.get("desc", "")
+                for img in preload.get("imageList", []):
+                    img_url = img.get("urlDefault") or img.get("url") or ""
+                    if img_url and img_url.startswith("http"):
+                        image_urls.append(img_url)
             elif old_note_data:
                 first_note = next(iter(old_note_data.values()), {})
                 note_inner = first_note.get("note", {})
@@ -148,19 +158,24 @@ class XiaohongshuFetcher(BaseFetcher):
                     tag_name = tag.get("name", "")
                     if tag_name:
                         tags.append(tag_name)
+                for img in note_inner.get("imageList", []):
+                    img_url = img.get("urlDefault") or img.get("url") or ""
+                    if img_url and img_url.startswith("http"):
+                        image_urls.append(img_url)
 
             content = f"{title}\n\n{desc}" if title else desc
 
-            if not content.strip():
+            if not content.strip() and not image_urls:
                 return None
 
             return RawContent(
                 url="",  # 调用方会填充
                 title=title or "小红书笔记",
-                content=content,
+                content=content or "(图片笔记)",
                 author=author,
                 source_platform="xiaohongshu",
                 original_tags=tags or None,
+                images=image_urls[:10] if image_urls else None,
             )
         except (json.JSONDecodeError, StopIteration):
             return None

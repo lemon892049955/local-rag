@@ -139,6 +139,17 @@ async def ingest(req: IngestRequest):
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"抓取失败: {e}")
 
+    # 2.5 图片 OCR（如果抓取器提取了图片列表）
+    if raw.images:
+        try:
+            from ingestion.vision_ocr import VisionOCR
+            ocr = VisionOCR()
+            ocr_text = await ocr.ocr_multiple_images(raw.images[:5])
+            if ocr_text:
+                raw.content = raw.content + "\n\n---以下是图片内容---\n\n" + ocr_text
+        except Exception:
+            pass
+
     # 3. LLM 清洗
     try:
         knowledge = await get_cleaner().clean(

@@ -14,6 +14,7 @@ class RawContent:
     author: str = ""
     source_platform: str = ""  # xiaohongshu / wechat / general
     original_tags: Optional[List[str]] = None  # 平台原始标签（如小红书标签）
+    images: Optional[List[str]] = None  # 图片 URL 列表（供后续 OCR）
 
 
 class BaseFetcher(ABC):

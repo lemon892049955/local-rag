@@ -46,10 +46,15 @@ class WechatFetcher(BaseFetcher):
         if not content_div:
             raise FetchError(url, "未找到文章正文区域")
 
+        # 先提取图片 URL（在清洗删除 img 之前）
+        image_urls = self._extract_images(content_div)
+
         # 清洗正文
         content = self._clean_content(content_div)
 
-        if len(content.strip()) < 50:
+        # 有图片时降低文本长度阈值（图片密集型文章文字可能很少）
+        min_len = 10 if image_urls else 50
+        if len(content.strip()) < min_len:
             raise FetchError(url, "提取的正文内容过短，可能是付费/已删除文章")
 
         return RawContent(
@@ -58,6 +63,7 @@ class WechatFetcher(BaseFetcher):
             content=content,
             author=author,
             source_platform="wechat",
+            images=image_urls[:10] if image_urls else None,
         )
 
     def _extract_title(self, soup: BeautifulSoup) -> str:
@@ -89,7 +95,7 @@ class WechatFetcher(BaseFetcher):
 
     def _clean_content(self, content_div) -> str:
         """清洗正文 HTML -> 纯文本"""
-        # 移除不需要的元素
+        # 移除不需要的元素（img 已在 _extract_images 中提取过）
         for tag in content_div.find_all(["script", "style", "iframe", "img"]):
             tag.decompose()
 
@@ -128,3 +134,19 @@ class WechatFetcher(BaseFetcher):
         content = re.sub(r"[ \t]+", " ", content)
 
         return content.strip()
+
+    def _extract_images(self, content_div) -> list:
+        """从正文 HTML 中提取图片 URL（微信用 data-src）"""
+        urls = []
+        for img in content_div.find_all("img"):
+            src = img.get("data-src") or img.get("src") or ""
+            if src and src.startswith("http") and "mmbiz" in src:
+                # 过滤掉装饰性小图（宽度<100px 的表情/图标）
+                width = img.get("data-w") or img.get("width") or "999"
+                try:
+                    if int(str(width).replace("px", "")) < 100:
+                        continue
+                except (ValueError, TypeError):
+                    pass
+                urls.append(src)
+        return urls
