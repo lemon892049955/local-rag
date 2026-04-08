@@ -2,6 +2,16 @@
 
 ## 2026-04-08
 
+- **18:01 QUERY_BACKFILL_CANDIDATE** | 来源: `最近入了什么？`
+  - 答案长度: 532
+  - 来源数: 4
+
+
+- **18:00 INGEST** | 来源: `260408_CV8DtfzV_AI时代产品经理的新角色：从PRD到原型.md`
+  - 创建: topics/AI时代产品经理的新实践.md (AI时代产品经理的新实践)
+  - 更新: topics/AI时代产品经理的新角色与工作方式.md (追加洞察)
+
+
 - **17:13 INGEST** | 来源: `260408_mXea3Viq_Github一周热点109期：Claude_Code开源及其他项目.md`
   - 创建: topics/Github一周热点109期.md (Github一周热点109期：Claude Code开源及其他项目)
 
