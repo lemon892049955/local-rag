@@ -5,9 +5,9 @@ summary: Anthropic产品经理Cat Wu分享AI时代产品管理的新变化和工
 created_at: '2026-04-08'
 updated_at: '2026-04-08'
 sources:
-  - 260408_T8nbzvao_AI时代产品经理的新角色与工作方式.md
+- 260408_T8nbzvao_AI时代产品经理的新角色与工作方式.md
+- 260408_K2An7xzP_Anthropic推出Claude_Code的Auto_Dream功能.md
 ---
-
 # AI时代产品经理的新角色与工作方式
 
 > AI时代，产品经理的角色和工作方式正在经历前所未有的变化。
@@ -48,4 +48,8 @@ PM的角色价值锚点从「能不能做」的把关者转向「该不该做」
 
 ## 新增洞察
 
-_(后续更新在此追加)_
+### 2026-04-08 | 来源: 260408_K2An7xzP_Anthropic推出Claude_Code的Auto_Dream功能.md
+
+Anthropic的Claude Code新增Auto Dream功能，使得Agent在休息时能够自动生成梦境，这进一步体现了AI时代产品经理工作方式的变化。产品经理需要适应AI模型快速迭代的特性，利用AI工具进行创新和快速原型开发。Auto Dream功能的推出，可能是产品经理利用AI进行创意生成和产品构思的一个新方向，这要求产品经理不仅要理解技术，还要能够引导和利用AI生成的内容，进一步推动产品的创新和发展。[来源: 260408_K2An7xzP_Anthropic推出Claude_Code的Auto_Dream功能.md]
+
+[来源: 260408_K2An7xzP_Anthropic推出Claude_Code的Auto_Dream功能.md]

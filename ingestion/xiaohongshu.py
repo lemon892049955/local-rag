@@ -42,6 +42,8 @@ class XiaohongshuFetcher(BaseFetcher):
             mcp_endpoint: MCP 服务端点 (如 http://localhost:18060/mcp)
         """
         self.mcp_endpoint = mcp_endpoint
+        self._mcp_session_id = None
+        self._mcp_http_session = None
 
     async def fetch(self, url: str) -> RawContent:
         """抓取小红书笔记"""
@@ -77,11 +79,21 @@ class XiaohongshuFetcher(BaseFetcher):
         if not result:
             raise FetchError(url, "MCP get_feed_detail 返回空结果")
 
-        # 解析 MCP 返回的数据
-        title = result.get("title", "")
-        desc = result.get("desc", "") or result.get("content", "")
-        author = result.get("user", {}).get("nickname", "") if isinstance(result.get("user"), dict) else ""
-        images = result.get("images", [])
+        # 解析 MCP 返回的数据（结构: {feed_id, data: {note: {...}}}）
+        note = result
+        if "data" in result and isinstance(result["data"], dict):
+            note = result["data"].get("note", result["data"])
+        if "note" in result and isinstance(result["note"], dict):
+            note = result["note"]
+
+        title = note.get("title", "")
+        desc = note.get("desc", "") or note.get("content", "")
+        author = ""
+        user = note.get("user", {})
+        if isinstance(user, dict):
+            author = user.get("nickname", "") or user.get("name", "")
+
+        images = note.get("images", []) or note.get("imageList", [])
         tags = []
 
         # 提取标签
@@ -127,13 +139,42 @@ class XiaohongshuFetcher(BaseFetcher):
             images=image_urls[:10] if image_urls else None,
         )
 
-    def _call_mcp_tool(self, tool_name: str, params: dict) -> dict:
-        """调用 MCP 服务的工具
-
-        xiaohongshu-mcp 支持 HTTP SSE 模式，端点: POST {mcp_endpoint}
-        """
+    def _ensure_mcp_session(self):
+        """确保 MCP session 已初始化"""
+        if self._mcp_session_id:
+            return True
         try:
-            # MCP HTTP 协议: JSON-RPC over HTTP
+            self._mcp_http_session = requests.Session()
+            # Step 1: initialize
+            r = self._mcp_http_session.post(self.mcp_endpoint, json={
+                "jsonrpc": "2.0", "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "local-rag", "version": "0.6"},
+                },
+            }, timeout=10)
+            self._mcp_session_id = r.headers.get("Mcp-Session-Id", "")
+            if not self._mcp_session_id:
+                logger.warning("MCP 未返回 Session ID")
+                return False
+            # Step 2: initialized notification
+            self._mcp_http_session.post(self.mcp_endpoint, json={
+                "jsonrpc": "2.0", "method": "notifications/initialized",
+            }, headers={"Mcp-Session-Id": self._mcp_session_id}, timeout=5)
+            logger.info(f"MCP session 已建立: {self._mcp_session_id[:8]}...")
+            return True
+        except Exception as e:
+            logger.warning(f"MCP session 初始化失败: {e}")
+            self._mcp_session_id = None
+            return False
+
+    def _call_mcp_tool(self, tool_name: str, params: dict) -> dict:
+        """调用 MCP 服务的工具（带 session 管理）"""
+        if not self._ensure_mcp_session():
+            return None
+        try:
             payload = {
                 "jsonrpc": "2.0",
                 "id": 1,
@@ -143,19 +184,24 @@ class XiaohongshuFetcher(BaseFetcher):
                     "arguments": params,
                 },
             }
-            resp = requests.post(
+            resp = self._mcp_http_session.post(
                 self.mcp_endpoint,
                 json=payload,
-                timeout=30,
-                headers={"Content-Type": "application/json"},
+                timeout=60,
+                headers={
+                    "Content-Type": "application/json",
+                    "Mcp-Session-Id": self._mcp_session_id,
+                },
             )
             resp.raise_for_status()
 
             data = resp.json()
 
-            # 处理 JSON-RPC 响应
             if "error" in data:
                 logger.error(f"MCP 错误: {data['error']}")
+                # session 可能过期，重置
+                if "session" in str(data["error"]).lower():
+                    self._mcp_session_id = None
                 return None
 
             result = data.get("result", {})
@@ -174,6 +220,7 @@ class XiaohongshuFetcher(BaseFetcher):
 
         except requests.exceptions.ConnectionError:
             logger.warning(f"MCP 服务未运行: {self.mcp_endpoint}")
+            self._mcp_session_id = None
             return None
         except Exception as e:
             logger.error(f"MCP 调用失败 [{tool_name}]: {e}")
