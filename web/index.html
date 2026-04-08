@@ -1,116 +1,225 @@
 <!DOCTYPE html>
-<html lang="zh-CN" x-data="app()" x-init="init()">
+<html lang="zh-CN" x-data="app()" x-init="init()" :class="dark&&'dark'">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Local RAG - 个人知识库</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
     <script>
-        tailwind.config = {
-            darkMode: 'class',
-            theme: {
-                extend: {
-                    colors: {
-                        brand: { 50:'#f0f5ff', 100:'#dbe8fe', 200:'#bfd3fe', 400:'#7ba4f7', 500:'#5b8af5', 600:'#3b6ce4', 700:'#2d55c4', 800:'#1e3a8a' }
-                    }
-                }
-            }
-        }
+        tailwind.config={darkMode:'class',theme:{extend:{fontFamily:{sans:['Inter','system-ui','sans-serif']},colors:{
+            brand:{50:'#eef2ff',100:'#e0e7ff',200:'#c7d2fe',300:'#a5b4fc',400:'#818cf8',500:'#6366f1',600:'#4f46e5',700:'#4338ca',800:'#3730a3'},
+            surface:{50:'#f8fafc',100:'#f1f5f9',200:'#e2e8f0',700:'#334155',800:'#1e293b',900:'#0f172a'}
+        }}}}
     </script>
     <style>
-        [x-cloak] { display: none !important; }
-        .prose h1 { font-size: 1.5rem; font-weight: 700; margin: 1rem 0 .5rem; }
-        .prose h2 { font-size: 1.25rem; font-weight: 600; margin: 1rem 0 .5rem; color: #1e3a8a; }
-        .prose h3 { font-size: 1.1rem; font-weight: 600; margin: .75rem 0 .25rem; }
-        .prose p { margin: .5rem 0; line-height: 1.75; }
-        .prose ul, .prose ol { margin: .5rem 0; padding-left: 1.5rem; }
-        .prose li { margin: .25rem 0; }
-        .prose blockquote { border-left: 3px solid #5b8af5; padding-left: 1rem; color: #555; margin: .75rem 0; }
-        .prose code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: .9em; }
-        .prose pre { background: #1e293b; color: #e2e8f0; padding: 1rem; border-radius: 8px; overflow-x: auto; margin: .75rem 0; }
-        .prose pre code { background: none; padding: 0; color: inherit; }
-        .fade-in { animation: fadeIn .3s ease-in; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-        .card-hover { transition: all .2s; }
-        .card-hover:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(0,0,0,.08); }
-        .tag { display: inline-block; padding: 2px 10px; border-radius: 9999px; font-size: .75rem; font-weight: 500; }
-        .spinner { border: 3px solid #e5e7eb; border-top-color: #5b8af5; border-radius: 50%; width: 20px; height: 20px; animation: spin .6s linear infinite; display: inline-block; }
-        @keyframes spin { to { transform: rotate(360deg); } }
+        [x-cloak]{display:none!important}
+        body{font-family:'Inter',system-ui,sans-serif}
+        /* 暗黑模式 */
+        .dark body,.dark{background:#0f172a;color:#e2e8f0}
+        .dark .bg-white{background:#1e293b!important}
+        .dark .border-gray-100,.dark .border-gray-200{border-color:#334155!important}
+        .dark .text-gray-800,.dark .text-gray-700{color:#e2e8f0!important}
+        .dark .text-gray-500,.dark .text-gray-400{color:#94a3b8!important}
+        .dark .bg-surface-50{background:#0f172a!important}
+        .dark .bg-gray-100{background:#334155!important}
+        .dark .hover\:bg-gray-200:hover{background:#475569!important}
+        .dark .sidebar-item:hover{background:#1e293b}
+        .dark .sidebar-item.active{background:#312e81;color:#a5b4fc}
+        /* 通用 */
+        .prose h1{font-size:1.5rem;font-weight:700;margin:1rem 0 .5rem}
+        .prose h2{font-size:1.25rem;font-weight:600;margin:1rem 0 .5rem;color:#4f46e5}
+        .prose h3{font-size:1.1rem;font-weight:600;margin:.75rem 0 .25rem}
+        .prose p{margin:.5rem 0;line-height:1.75}
+        .prose ul,.prose ol{margin:.5rem 0;padding-left:1.5rem}
+        .prose li{margin:.25rem 0}
+        .prose blockquote{border-left:3px solid #6366f1;padding-left:1rem;color:#64748b;margin:.75rem 0}
+        .prose code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-size:.9em}
+        .prose pre{background:#1e293b;color:#e2e8f0;padding:1rem;border-radius:8px;overflow-x:auto;margin:.75rem 0}
+        .prose pre code{background:none;padding:0;color:inherit}
+        .dark .prose code{background:#334155}
+        .fade-in{animation:fadeIn .3s ease}
+        @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+        .card-hover{transition:all .2s}.card-hover:hover{transform:translateY(-2px);box-shadow:0 8px 25px rgba(0,0,0,.08)}
+        .dark .card-hover:hover{box-shadow:0 8px 25px rgba(0,0,0,.3)}
+        .tag{display:inline-block;padding:2px 10px;border-radius:9999px;font-size:.7rem;font-weight:500}
+        .spinner{border:3px solid #e5e7eb;border-top-color:#6366f1;border-radius:50%;width:20px;height:20px;animation:spin .6s linear infinite;display:inline-block}
+        @keyframes spin{to{transform:rotate(360deg)}}
+        .sidebar-item{transition:all .15s}.sidebar-item:hover{background:#eef2ff}
+        .sidebar-item.active{background:#e0e7ff;color:#4338ca;font-weight:600}
+        .graph-node{cursor:pointer}
+        .tag-cloud-item{display:inline-block;padding:5px 14px;margin:3px;border-radius:6px;cursor:pointer;transition:all .15s;font-weight:500;letter-spacing:.02em}
+        .tag-cloud-item:hover{transform:scale(1.05);box-shadow:0 3px 10px rgba(0,0,0,.2)}
+        #graph-svg{width:100%;height:100%}
+        .platform-icon{width:16px;height:16px;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;font-size:10px;flex-shrink:0}
     </style>
 </head>
-<body class="bg-gray-50 min-h-screen">
+<body class="bg-surface-50 min-h-screen flex" :class="dark&&'dark'">
 
-<!-- 顶部导航 -->
-<nav class="bg-white border-b border-gray-200 sticky top-0 z-50 backdrop-blur bg-white/90">
-    <div class="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
-        <div class="flex items-center gap-2 cursor-pointer" @click="page='home'">
-            <div class="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center">
-                <svg class="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path></svg>
-            </div>
-            <span class="font-bold text-gray-800 text-lg">Local RAG</span>
-            <span class="text-xs text-gray-400 hidden sm:inline">个人知识库</span>
+<!-- ===== 左侧边栏 ===== -->
+<aside class="bg-white border-r border-gray-200 flex flex-col h-screen sticky top-0 flex-shrink-0 transition-all duration-200"
+       :class="sidebarCollapsed?'w-14':'w-56'">
+    <!-- Logo -->
+    <div class="h-14 flex items-center gap-2 px-3 border-b border-gray-100 flex-shrink-0">
+        <div class="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center flex-shrink-0 cursor-pointer" @click="sidebarCollapsed=!sidebarCollapsed">
+            <svg class="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
         </div>
-        <div class="flex items-center gap-1">
-            <button @click="page='home'" :class="page==='home' ? 'bg-brand-50 text-brand-700' : 'text-gray-500 hover:text-gray-700'" class="px-3 py-1.5 rounded-lg text-sm font-medium transition">首页</button>
-            <button @click="page='ingest'" :class="page==='ingest' ? 'bg-brand-50 text-brand-700' : 'text-gray-500 hover:text-gray-700'" class="px-3 py-1.5 rounded-lg text-sm font-medium transition">入库</button>
-            <button @click="page='search'" :class="page==='search' ? 'bg-brand-50 text-brand-700' : 'text-gray-500 hover:text-gray-700'" class="px-3 py-1.5 rounded-lg text-sm font-medium transition">搜索</button>
+        <div x-show="!sidebarCollapsed" class="overflow-hidden">
+            <div class="font-bold text-gray-800 text-sm leading-tight">Local RAG</div>
+            <div class="text-[10px] text-gray-400">个人知识库</div>
         </div>
     </div>
-</nav>
 
-<main class="max-w-6xl mx-auto px-4 sm:px-6 py-6">
+    <!-- 搜索框 -->
+    <div x-show="!sidebarCollapsed" class="px-3 py-2 border-b border-gray-50 flex-shrink-0">
+        <div class="relative">
+            <svg class="w-4 h-4 text-gray-400 absolute left-2.5 top-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+            <input x-model="quickSearch" @keydown.enter="doQuickSearch()" placeholder="搜索知识库..."
+                class="w-full pl-8 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-400 bg-surface-50">
+        </div>
+    </div>
+    <div x-show="sidebarCollapsed" class="px-2 py-2 flex-shrink-0">
+        <div @click="setPage('search')" class="w-10 h-8 flex items-center justify-center rounded-lg cursor-pointer hover:bg-gray-100">
+            <svg class="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+        </div>
+    </div>
 
-    <!-- ===== 首页 ===== -->
-    <div x-show="page==='home'" x-cloak class="fade-in">
-        <!-- 统计卡片 -->
-        <div class="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-8">
-            <div class="bg-white rounded-xl p-5 border border-gray-100">
-                <div class="text-3xl font-bold text-brand-600" x-text="stats.knowledge_files || 0"></div>
-                <div class="text-sm text-gray-500 mt-1">知识文件</div>
+    <nav class="flex-1 overflow-y-auto py-2 px-2">
+        <div class="mb-3">
+            <template x-for="nav in [{id:'graph',icon:'🔗',label:'知识图谱'},{id:'wiki',icon:'📝',label:'Wiki'},{id:'index',icon:'📑',label:'知识索引'},{id:'ingest',icon:'➕',label:'入库'},{id:'search',icon:'🔍',label:'搜索'}]" :key="nav.id">
+                <div @click="setPage(nav.id)" class="sidebar-item rounded-lg px-3 py-2 text-sm flex items-center gap-2 cursor-pointer mb-0.5" :class="page===nav.id&&'active'">
+                    <span x-text="nav.icon" class="w-5 text-center flex-shrink-0"></span>
+                    <span x-show="!sidebarCollapsed" x-text="nav.label" class="truncate"></span>
+                </div>
+            </template>
+        </div>
+        <div x-show="!sidebarCollapsed">
+            <div class="px-3 mb-1 text-[10px] font-semibold text-gray-400 uppercase tracking-widest">分类</div>
+            <template x-for="cat in categories" :key="cat.name">
+                <div @click="filterCategory(cat)" class="sidebar-item rounded-lg px-3 py-1.5 text-xs flex items-center justify-between cursor-pointer" :class="activeCategory===cat.name&&'active'">
+                    <span class="flex items-center gap-2 truncate">
+                        <span class="w-2 h-2 rounded-full flex-shrink-0" :class="catColor(cat.name)"></span>
+                        <span x-text="cat.name" class="truncate"></span>
+                    </span>
+                    <span class="text-[10px] bg-gray-100 text-gray-500 rounded-full px-1.5 py-0.5 flex-shrink-0" x-text="cat.count"></span>
+                </div>
+            </template>
+        </div>
+    </nav>
+
+    <!-- 底部 -->
+    <div class="border-t border-gray-100 p-2 flex items-center justify-between flex-shrink-0" x-show="!sidebarCollapsed">
+        <span class="text-[10px] text-gray-400" x-text="stats.knowledge_files+' 篇 / '+stats.total_chunks+' 切片'"></span>
+        <button @click="dark=!dark" class="w-6 h-6 rounded flex items-center justify-center hover:bg-gray-100 text-gray-400">
+            <span x-text="dark?'☀️':'🌙'" class="text-xs"></span>
+        </button>
+    </div>
+</aside>
+
+<!-- ===== 主内容区 ===== -->
+<main class="flex-1 min-h-screen overflow-x-hidden">
+
+    <!-- ===== 知识图谱 ===== -->
+    <div x-show="page==='graph'" x-cloak class="h-screen flex flex-col">
+        <!-- 顶栏 -->
+        <div class="h-12 flex items-center justify-between px-5 border-b border-gray-100 bg-white/80 backdrop-blur flex-shrink-0">
+            <div class="flex items-center gap-3">
+                <h1 class="font-semibold text-gray-800 text-sm">知识图谱</h1>
+                <span class="text-[11px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full" x-text="'已索引 '+stats.total_chunks+' 切片 · 关联 '+stats.knowledge_files+' 篇知识'"></span>
             </div>
-            <div class="bg-white rounded-xl p-5 border border-gray-100">
-                <div class="text-3xl font-bold text-brand-600" x-text="stats.total_chunks || 0"></div>
-                <div class="text-sm text-gray-500 mt-1">索引切片</div>
-            </div>
-            <div class="bg-white rounded-xl p-5 border border-gray-100 hidden sm:block">
-                <div class="text-3xl font-bold text-green-600">3</div>
-                <div class="text-sm text-gray-500 mt-1">支持平台</div>
+            <div class="flex items-center gap-3 text-[11px] text-gray-400">
+                <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-brand-500 inline-block"></span> 文章</span>
+                <span class="flex items-center gap-1"><span class="w-4 h-2 rounded bg-gray-300 inline-block"></span> 标签</span>
+                <span class="flex items-center gap-1"><span class="w-5 border-t-2 border-dashed border-emerald-400 inline-block"></span> 关联</span>
+                <button @click="showPanel=!showPanel" class="ml-1 px-2 py-0.5 rounded bg-gray-100 hover:bg-gray-200 text-gray-500 text-[11px] transition">
+                    <span x-text="showPanel?'⟩':'⟨'"></span>
+                </button>
             </div>
         </div>
-
-        <!-- 快捷操作 -->
-        <div class="flex gap-3 mb-6">
-            <button @click="page='ingest'" class="bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2">
-                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
-                入库新知识
-            </button>
-            <button @click="page='search'" class="bg-white hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium border border-gray-200 transition flex items-center gap-2">
-                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
-                搜索知识库
-            </button>
+        <div class="flex-1 flex overflow-hidden">
+            <!-- 图谱 -->
+            <div class="flex-1 relative" id="graph-container">
+                <svg id="graph-svg"></svg>
+                <!-- Tooltip -->
+                <div x-show="hoveredNode" x-cloak class="absolute bg-white/95 dark:bg-surface-800/95 backdrop-blur-sm rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 p-4 max-w-xs z-10 pointer-events-none"
+                     :style="`left:${tooltipX}px;top:${tooltipY}px`">
+                    <div class="flex items-center gap-2 mb-1">
+                        <span class="platform-icon" :class="platformBg(hoveredNode?.platform)" x-text="platformEmoji(hoveredNode?.platform)"></span>
+                        <div class="font-semibold text-sm text-gray-800" x-text="hoveredNode?.label"></div>
+                    </div>
+                    <div class="text-xs text-gray-500 leading-relaxed line-clamp-3" x-text="hoveredNode?.summary"></div>
+                    <div class="flex gap-1 mt-2 flex-wrap" x-show="hoveredNode?.tags?.length">
+                        <template x-for="t in (hoveredNode?.tags||[]).slice(0,4)" :key="t">
+                            <span class="tag bg-brand-50 text-brand-700 dark:bg-brand-800/30 dark:text-brand-300" x-text="t"></span>
+                        </template>
+                    </div>
+                    <div class="text-[10px] text-gray-400 mt-2 italic">点击查看详情</div>
+                </div>
+            </div>
+            <!-- 右侧面板 -->
+            <div x-show="showPanel" x-cloak class="w-64 border-l border-gray-100 bg-white flex-shrink-0 overflow-y-auto transition-all">
+                <!-- 标签云 -->
+                <div class="p-4 border-b border-gray-50">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-[10px] font-semibold text-gray-400 uppercase tracking-widest">标签云</span>
+                        <button @click="tagExpanded=!tagExpanded" class="text-[10px] text-brand-500 hover:text-brand-700" x-text="tagExpanded?'收起':'展开'"></button>
+                    </div>
+                    <div class="flex flex-wrap gap-2" :class="!tagExpanded&&'max-h-32 overflow-hidden'">
+                        <template x-for="tag in tagStats" :key="tag.name">
+                            <span class="tag-cloud-item" :style="tagStyle(tag)" @click="searchByTag(tag.name)" x-text="tag.name"></span>
+                        </template>
+                    </div>
+                </div>
+                <!-- 时间轴 -->
+                <div class="p-4">
+                    <div class="text-[10px] font-semibold text-gray-400 uppercase tracking-widest mb-3">入库时间轴</div>
+                    <div class="relative pl-5 space-y-3">
+                        <div class="absolute left-[7px] top-1 bottom-1 w-px bg-gradient-to-b from-brand-400 to-brand-100 dark:from-brand-600 dark:to-brand-900"></div>
+                        <template x-for="item in timeline.slice(0,10)" :key="item.file_path">
+                            <div class="relative cursor-pointer group" @click="openDetailByPath(item.file_path)">
+                                <div class="absolute -left-5 top-0.5 w-3 h-3 rounded-full border-2 border-brand-400 bg-white dark:bg-surface-800 group-hover:bg-brand-400 group-hover:scale-110 transition"></div>
+                                <div class="flex items-center gap-1.5 mb-0.5">
+                                    <span class="platform-icon text-[9px]" :class="platformBg(item.platform)" x-text="platformEmoji(item.platform)"></span>
+                                    <span class="text-xs font-medium text-gray-700 group-hover:text-brand-600 transition truncate" x-text="item.title"></span>
+                                </div>
+                                <span class="text-[10px] text-gray-400" x-text="relativeTime(item.date)"></span>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+            </div>
         </div>
+    </div>
 
-        <!-- 知识列表 -->
-        <h2 class="text-lg font-semibold text-gray-800 mb-4">知识库</h2>
-        <div x-show="knowledgeList.length === 0" class="text-center py-16 text-gray-400">
-            <svg class="w-16 h-16 mx-auto mb-4 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
-            <p>知识库为空，去入库第一篇内容吧</p>
+    <!-- ===== 知识索引 ===== -->
+    <div x-show="page==='index'" x-cloak class="fade-in">
+        <div class="h-12 flex items-center justify-between px-5 border-b border-gray-100 bg-white/80 backdrop-blur">
+            <div class="flex items-center gap-2">
+                <h1 class="font-semibold text-gray-800 text-sm" x-text="activeCategory||'全部知识'"></h1>
+                <span class="text-[11px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full" x-text="filteredList.length+'篇'"></span>
+            </div>
+            <button @click="activeCategory='';loadKnowledge()" x-show="activeCategory" class="text-[11px] text-brand-500 hover:text-brand-700">清除筛选</button>
         </div>
-        <div class="space-y-3">
-            <template x-for="item in knowledgeList" :key="item.file_path">
-                <div class="bg-white rounded-xl p-5 border border-gray-100 card-hover cursor-pointer" @click="openDetail(item)">
-                    <div class="flex items-start justify-between gap-4">
+        <div class="p-5 space-y-3 max-w-5xl mx-auto">
+            <template x-for="item in filteredList" :key="item.file_path">
+                <div class="bg-white rounded-xl p-4 border border-gray-100 card-hover cursor-pointer" @click="openDetail(item)">
+                    <div class="flex items-start gap-3">
+                        <div class="w-1 self-stretch rounded-full flex-shrink-0" :class="platformStripe(item.source_platform)"></div>
                         <div class="flex-1 min-w-0">
-                            <h3 class="font-semibold text-gray-800 truncate" x-text="item.title"></h3>
-                            <p class="text-sm text-gray-500 mt-1 line-clamp-2" x-text="item.summary"></p>
-                            <div class="flex items-center gap-2 mt-3 flex-wrap">
-                                <template x-for="tag in (item.tags || [])" :key="tag">
-                                    <span class="tag bg-brand-50 text-brand-700" x-text="tag"></span>
+                            <div class="flex items-center gap-2 mb-1">
+                                <span class="platform-icon text-[9px]" :class="platformBg(item.source_platform)" x-text="platformEmoji(item.source_platform)"></span>
+                                <h3 class="font-semibold text-gray-800 text-sm truncate" x-text="item.title"></h3>
+                            </div>
+                            <p class="text-xs text-gray-500 line-clamp-2 leading-relaxed" x-text="item.summary"></p>
+                            <div class="flex items-center gap-2 mt-2 flex-wrap">
+                                <template x-for="tag in (item.tags||[])" :key="tag">
+                                    <span class="tag bg-brand-50 text-brand-700 dark:bg-brand-800/20 dark:text-brand-300 cursor-pointer" @click.stop="searchByTag(tag)" x-text="tag"></span>
                                 </template>
-                                <span class="tag bg-gray-100 text-gray-500" x-text="platformLabel(item.source_platform)"></span>
-                                <span class="text-xs text-gray-400 ml-auto" x-text="(item.created_at || '').slice(0,10)"></span>
+                                <span class="text-[10px] text-gray-400 ml-auto" x-text="(item.author?item.author+' · ':'')+relativeTime(item.created_at)"></span>
                             </div>
                         </div>
                     </div>
@@ -121,77 +230,48 @@
 
     <!-- ===== 详情页 ===== -->
     <div x-show="page==='detail'" x-cloak class="fade-in">
-        <button @click="page='home'" class="text-sm text-brand-600 hover:text-brand-800 mb-4 flex items-center gap-1">
-            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
-            返回列表
-        </button>
-        <div x-show="detailLoading" class="text-center py-16"><div class="spinner"></div></div>
-        <div x-show="!detailLoading && detailData" class="bg-white rounded-xl border border-gray-100 overflow-hidden">
-            <!-- 头部元数据 -->
-            <div class="p-6 border-b border-gray-100">
-                <h1 class="text-xl font-bold text-gray-900" x-text="detailData?.meta?.title || ''"></h1>
-                <p class="text-sm text-gray-500 mt-2" x-text="detailData?.meta?.summary || ''"></p>
-                <div class="flex items-center gap-2 mt-3 flex-wrap">
-                    <template x-for="tag in (detailData?.meta?.tags || [])" :key="tag">
-                        <span class="tag bg-brand-50 text-brand-700" x-text="tag"></span>
-                    </template>
-                    <span class="text-xs text-gray-400" x-text="detailData?.meta?.author ? '作者: ' + detailData.meta.author : ''"></span>
-                    <a :href="detailData?.meta?.source_url" target="_blank" x-show="detailData?.meta?.source_url" class="text-xs text-brand-500 hover:underline ml-auto">查看原文</a>
+        <div class="h-12 flex items-center px-5 border-b border-gray-100 bg-white/80 backdrop-blur">
+            <button @click="page=prevPage||'index'" class="text-xs text-brand-600 hover:text-brand-800 flex items-center gap-1">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>返回
+            </button>
+        </div>
+        <div class="p-5 max-w-5xl mx-auto">
+            <div x-show="detailLoading" class="text-center py-16"><div class="spinner"></div></div>
+            <div x-show="!detailLoading&&detailData" class="bg-white rounded-xl border border-gray-100 overflow-hidden">
+                <div class="p-6 border-b border-gray-100">
+                    <h1 class="text-xl font-bold text-gray-900" x-text="detailData?.meta?.title||''"></h1>
+                    <p class="text-sm text-gray-500 mt-2" x-text="detailData?.meta?.summary||''"></p>
+                    <div class="flex items-center gap-2 mt-3 flex-wrap">
+                        <template x-for="tag in (detailData?.meta?.tags||[])" :key="tag"><span class="tag bg-brand-50 text-brand-700" x-text="tag"></span></template>
+                        <span class="text-xs text-gray-400" x-text="detailData?.meta?.author?'作者: '+detailData.meta.author:''"></span>
+                        <a :href="detailData?.meta?.source_url" target="_blank" x-show="detailData?.meta?.source_url" class="text-xs text-brand-500 hover:underline ml-auto">查看原文 ↗</a>
+                    </div>
                 </div>
+                <div class="p-6 prose max-w-none" x-html="renderMd(detailData?.content||'')"></div>
             </div>
-            <!-- 正文 -->
-            <div class="p-6 prose max-w-none" x-html="renderMarkdown(detailData?.content || '')"></div>
         </div>
     </div>
 
     <!-- ===== 入库 ===== -->
     <div x-show="page==='ingest'" x-cloak class="fade-in">
-        <div class="max-w-2xl mx-auto">
-            <h2 class="text-xl font-bold text-gray-800 mb-2">入库新知识</h2>
-            <p class="text-sm text-gray-500 mb-6">粘贴文章链接，系统自动抓取、清洗、落库、索引。支持公众号、小红书、通用网页。</p>
-
-            <div class="bg-white rounded-xl border border-gray-100 p-6">
-                <label class="block text-sm font-medium text-gray-700 mb-2">文章链接</label>
+        <div class="h-12 flex items-center px-5 border-b border-gray-100 bg-white/80 backdrop-blur"><h1 class="font-semibold text-gray-800 text-sm">入库新知识</h1></div>
+        <div class="p-5 max-w-3xl mx-auto">
+            <p class="text-xs text-gray-500 mb-4">粘贴链接，自动完成抓取 → 清洗 → 落库 → 索引。</p>
+            <div class="bg-white rounded-xl border border-gray-100 p-5">
                 <div class="flex gap-2">
-                    <input x-model="ingestUrl" type="url" placeholder="https://mp.weixin.qq.com/s/..." 
-                        class="flex-1 border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent" 
+                    <input x-model="ingestUrl" type="url" placeholder="https://mp.weixin.qq.com/s/..."
+                        class="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"
                         @keydown.enter="doIngest()" :disabled="ingestLoading">
-                    <button @click="doIngest()" :disabled="ingestLoading || !ingestUrl.trim()" 
-                        class="bg-brand-600 hover:bg-brand-700 disabled:bg-gray-300 text-white px-5 py-2.5 rounded-lg text-sm font-medium transition flex items-center gap-2 whitespace-nowrap">
-                        <div x-show="ingestLoading" class="spinner" style="width:16px;height:16px;border-width:2px;"></div>
-                        <span x-text="ingestLoading ? '处理中...' : '开始入库'"></span>
+                    <button @click="doIngest()" :disabled="ingestLoading||!ingestUrl.trim()"
+                        class="bg-brand-600 hover:bg-brand-700 disabled:bg-gray-300 text-white px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition">
+                        <span x-show="ingestLoading" class="spinner inline-block mr-1" style="width:14px;height:14px;border-width:2px;vertical-align:middle"></span>
+                        <span x-text="ingestLoading?'处理中...':'入库'"></span>
                     </button>
                 </div>
-
-                <!-- 进度条 -->
-                <div x-show="ingestStep" class="mt-4 space-y-2">
-                    <template x-for="(step, i) in ingestSteps" :key="i">
-                        <div class="flex items-center gap-2 text-sm" :class="i < ingestStep ? 'text-green-600' : i === ingestStep ? 'text-brand-600' : 'text-gray-300'">
-                            <template x-if="i < ingestStep"><svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg></template>
-                            <template x-if="i === ingestStep"><div class="spinner" style="width:14px;height:14px;border-width:2px;"></div></template>
-                            <template x-if="i > ingestStep"><div class="w-4 h-4 rounded-full border-2 border-gray-200"></div></template>
-                            <span x-text="step"></span>
-                        </div>
-                    </template>
-                </div>
-
-                <!-- 结果 -->
-                <div x-show="ingestResult" class="mt-4 p-4 rounded-lg" :class="ingestResult?.success ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'">
-                    <div class="flex items-start gap-2">
-                        <template x-if="ingestResult?.success">
-                            <svg class="w-5 h-5 text-green-500 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path></svg>
-                        </template>
-                        <div>
-                            <div class="font-medium text-sm" x-text="ingestResult?.success ? '入库成功!' : '入库失败'"></div>
-                            <div class="text-sm mt-1" x-text="ingestResult?.title ? '标题: ' + ingestResult.title : ingestResult?.error || ''"></div>
-                            <div class="flex gap-1 mt-2 flex-wrap" x-show="ingestResult?.tags?.length">
-                                <template x-for="tag in (ingestResult?.tags || [])" :key="tag">
-                                    <span class="tag bg-green-100 text-green-700" x-text="tag"></span>
-                                </template>
-                            </div>
-                            <div class="text-xs text-gray-500 mt-1" x-text="ingestResult?.message || ''"></div>
-                        </div>
-                    </div>
+                <div x-show="ingestResult" class="mt-3 p-3 rounded-lg text-sm" :class="ingestResult?.success?'bg-green-50 border border-green-200':'bg-red-50 border border-red-200'">
+                    <div class="font-medium" x-text="ingestResult?.success?'✅ 入库成功':'❌ 失败'"></div>
+                    <div class="text-xs mt-1 text-gray-600" x-text="ingestResult?.title?'标题: '+ingestResult.title:ingestResult?.error||''"></div>
+                    <div class="flex gap-1 mt-2 flex-wrap"><template x-for="t in (ingestResult?.tags||[])" :key="t"><span class="tag bg-green-100 text-green-700" x-text="t"></span></template></div>
                 </div>
             </div>
         </div>
@@ -199,169 +279,409 @@
 
     <!-- ===== 搜索 ===== -->
     <div x-show="page==='search'" x-cloak class="fade-in">
-        <div class="max-w-3xl mx-auto">
-            <h2 class="text-xl font-bold text-gray-800 mb-2">知识搜索</h2>
-            <p class="text-sm text-gray-500 mb-6">用自然语言提问，从知识库中智能检索并生成答案。</p>
-
-            <div class="flex gap-2 mb-6">
-                <input x-model="searchQuery" type="text" placeholder="例如：Vibe Coding 的核心流程是什么？" 
-                    class="flex-1 border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent bg-white"
+        <div class="h-12 flex items-center px-5 border-b border-gray-100 bg-white/80 backdrop-blur"><h1 class="font-semibold text-gray-800 text-sm">知识搜索</h1></div>
+        <div class="p-5 max-w-3xl mx-auto">
+            <div class="flex gap-2 mb-5">
+                <input x-model="searchQuery" type="text" placeholder="用自然语言提问..." class="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white"
                     @keydown.enter="doSearch()" :disabled="searchLoading">
-                <button @click="doSearch()" :disabled="searchLoading || !searchQuery.trim()"
-                    class="bg-brand-600 hover:bg-brand-700 disabled:bg-gray-300 text-white px-5 py-2.5 rounded-lg text-sm font-medium transition flex items-center gap-2 whitespace-nowrap">
-                    <div x-show="searchLoading" class="spinner" style="width:16px;height:16px;border-width:2px;"></div>
-                    <span x-text="searchLoading ? '检索中...' : '搜索'"></span>
+                <button @click="doSearch()" :disabled="searchLoading||!searchQuery.trim()" class="bg-brand-600 hover:bg-brand-700 disabled:bg-gray-300 text-white px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition">
+                    <span x-show="searchLoading" class="spinner inline-block mr-1" style="width:14px;height:14px;border-width:2px;vertical-align:middle"></span>
+                    <span x-text="searchLoading?'检索中...':'搜索'"></span>
                 </button>
             </div>
-
-            <!-- 搜索结果 -->
-            <div x-show="searchResult" class="fade-in space-y-4">
-                <div class="bg-white rounded-xl border border-gray-100 p-6">
-                    <div class="flex items-center gap-2 mb-3">
-                        <svg class="w-5 h-5 text-brand-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path></svg>
-                        <h3 class="font-semibold text-gray-800">AI 回答</h3>
-                    </div>
-                    <div class="prose text-sm" x-html="renderMarkdown(searchResult?.answer || '')"></div>
+            <div x-show="searchResult" class="fade-in space-y-3">
+                <div class="bg-white rounded-xl border border-gray-100 p-5">
+                    <h3 class="font-semibold text-gray-800 text-sm mb-2">💡 AI 回答</h3>
+                    <div class="prose text-sm" x-html="renderMd(searchResult?.answer||'')"></div>
                 </div>
+                <template x-for="(src,i) in (searchResult?.sources||[])" :key="i">
+                    <div class="bg-white rounded-lg border border-gray-100 p-3 flex items-center gap-3">
+                        <div class="w-5 h-5 bg-brand-50 text-brand-600 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0" x-text="i+1"></div>
+                        <div class="flex-1 min-w-0"><div class="text-xs font-medium text-gray-700 truncate" x-text="src.title"></div></div>
+                        <span class="text-[10px] text-gray-400 flex-shrink-0" x-text="'距离:'+src.distance"></span>
+                    </div>
+                </template>
+            </div>
+        </div>
+    </div>
 
-                <!-- 参考来源 -->
-                <div x-show="searchResult?.sources?.length" class="space-y-2">
-                    <h4 class="text-sm font-medium text-gray-500">参考来源</h4>
-                    <template x-for="(src, i) in (searchResult?.sources || [])" :key="i">
-                        <div class="bg-white rounded-lg border border-gray-100 p-3 flex items-center gap-3">
-                            <div class="w-6 h-6 bg-brand-50 text-brand-600 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0" x-text="i+1"></div>
-                            <div class="flex-1 min-w-0">
-                                <div class="text-sm font-medium text-gray-700 truncate" x-text="src.title"></div>
-                                <div class="text-xs text-gray-400" x-text="'相似度距离: ' + src.distance"></div>
+    <!-- ===== Wiki 浏览 ===== -->
+    <div x-show="page==='wiki'" x-cloak class="h-screen flex flex-col">
+        <!-- 顶栏 -->
+        <div class="h-12 flex items-center justify-between px-5 border-b border-gray-100 bg-white/80 backdrop-blur flex-shrink-0">
+            <div class="flex items-center gap-3">
+                <h1 class="font-semibold text-gray-800 text-sm">Wiki 知识网络</h1>
+                <span class="text-[11px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full" x-text="wikiPages.length+' 个页面'"></span>
+            </div>
+            <div class="flex items-center gap-3 text-[11px] text-gray-400">
+                <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-brand-500 inline-block"></span> 主题</span>
+                <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span> 实体</span>
+                <span class="flex items-center gap-1"><span class="w-5 border-t border-dashed border-brand-400 inline-block"></span> 引用</span>
+                <span class="flex items-center gap-1"><span class="w-5 border-t-2 border-dashed border-emerald-400 inline-block"></span> 共源</span>
+                <button @click="wikiShowList=!wikiShowList" class="ml-1 px-2 py-0.5 rounded bg-gray-100 hover:bg-gray-200 text-gray-500 text-[11px] transition">
+                    <span x-text="wikiShowList?'⟩':'⟨'"></span>
+                </button>
+            </div>
+        </div>
+        <div class="flex-1 flex overflow-hidden">
+            <!-- Wiki 图谱 -->
+            <div class="flex-1 relative" id="wiki-graph-container">
+                <svg id="wiki-graph-svg"></svg>
+                <!-- Tooltip -->
+                <div x-show="wikiHoveredNode" x-cloak class="absolute bg-white/95 dark:bg-surface-800/95 backdrop-blur-sm rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 p-4 max-w-xs z-10 pointer-events-none"
+                     :style="`left:${wikiTooltipX}px;top:${wikiTooltipY}px`">
+                    <div class="flex items-center gap-2 mb-1">
+                        <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" :class="wikiHoveredNode?.type==='topic'?'bg-brand-500':wikiHoveredNode?.type==='entitie'?'bg-emerald-500':'bg-amber-500'"></span>
+                        <div class="font-semibold text-sm text-gray-800" x-text="wikiHoveredNode?.title"></div>
+                    </div>
+                    <div class="text-xs text-gray-500 leading-relaxed line-clamp-3" x-text="wikiHoveredNode?.summary"></div>
+                    <div class="flex gap-2 mt-2 text-[10px] text-gray-400">
+                        <span x-text="(wikiHoveredNode?.sources_count||0)+' 个来源'"></span>
+                        <span x-text="'更新于 '+(wikiHoveredNode?.updated_at||'')"></span>
+                    </div>
+                    <div class="text-[10px] text-gray-400 mt-1 italic">点击查看详情</div>
+                </div>
+            </div>
+            <!-- 右侧面板 -->
+            <div x-show="wikiShowList" x-cloak class="w-72 border-l border-gray-100 bg-white flex-shrink-0 overflow-y-auto transition-all">
+                <!-- 工具栏 -->
+                <div class="p-3 border-b border-gray-50 flex gap-2">
+                    <button @click="loadWikiLog()" class="flex-1 text-[11px] text-brand-500 hover:text-brand-700 px-2 py-1.5 rounded-lg bg-brand-50 hover:bg-brand-100 transition text-center">编译日志</button>
+                    <button @click="runWikiInspect()" class="flex-1 text-[11px] text-brand-500 hover:text-brand-700 px-2 py-1.5 rounded-lg bg-brand-50 hover:bg-brand-100 transition text-center">健康检查</button>
+                </div>
+                <!-- 健康检查报告 -->
+                <div x-show="wikiInspect" x-cloak class="p-3 border-b border-gray-50 fade-in">
+                    <div class="flex items-center justify-between mb-1">
+                        <span class="text-[10px] font-semibold text-gray-400 uppercase">健康检查</span>
+                        <button @click="wikiInspect=null" class="text-gray-400 hover:text-gray-600 text-[10px]">关闭</button>
+                    </div>
+                    <p class="text-[11px] text-gray-600 mb-1" x-text="wikiInspect?.summary"></p>
+                    <div x-show="wikiInspect?.orphan_pages?.length" class="text-[10px] text-amber-600">孤立: <span x-text="wikiInspect?.orphan_pages?.join('、')"></span></div>
+                    <div x-show="wikiInspect?.missing_pages?.length" class="text-[10px] text-red-500">缺失: <span x-text="wikiInspect?.missing_pages?.map(p=>'[['+p+']]').join('、')"></span></div>
+                </div>
+                <!-- 编译日志 -->
+                <div x-show="wikiLogContent" x-cloak class="p-3 border-b border-gray-50 fade-in">
+                    <div class="flex items-center justify-between mb-1">
+                        <span class="text-[10px] font-semibold text-gray-400 uppercase">编译日志</span>
+                        <button @click="wikiLogContent=''" class="text-gray-400 hover:text-gray-600 text-[10px]">关闭</button>
+                    </div>
+                    <div class="prose text-[11px] max-h-48 overflow-y-auto" x-html="renderMd(wikiLogContent)"></div>
+                </div>
+                <!-- 页面列表 -->
+                <div class="p-3">
+                    <div class="text-[10px] font-semibold text-gray-400 uppercase tracking-widest mb-2">所有页面</div>
+                    <div class="space-y-1.5">
+                        <template x-for="wp in wikiPages" :key="wp.path">
+                            <div class="rounded-lg px-3 py-2 cursor-pointer hover:bg-gray-50 transition group" @click="openWikiDetail(wp)">
+                                <div class="flex items-center gap-2">
+                                    <span class="w-2 h-2 rounded-full flex-shrink-0"
+                                          :class="wp.type==='topic'?'bg-brand-400':wp.type==='entitie'?'bg-emerald-400':'bg-amber-400'"></span>
+                                    <span class="text-xs font-medium text-gray-700 group-hover:text-brand-600 truncate" x-text="wp.title"></span>
+                                </div>
+                                <div class="text-[10px] text-gray-400 ml-4 mt-0.5 truncate" x-text="wp.summary"></div>
+                                <div class="flex gap-2 ml-4 mt-0.5 text-[9px] text-gray-300">
+                                    <span x-text="(wp.sources||[]).length+' 来源'"></span>
+                                    <span x-text="wp.updated_at"></span>
+                                </div>
                             </div>
-                            <a :href="src.source_url" target="_blank" x-show="src.source_url" class="text-xs text-brand-500 hover:underline flex-shrink-0">原文</a>
-                        </div>
-                    </template>
+                        </template>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 
+    <!-- ===== Wiki 详情页 ===== -->
+    <div x-show="page==='wikiDetail'" x-cloak class="fade-in">
+        <div class="h-12 flex items-center px-5 border-b border-gray-100 bg-white/80 backdrop-blur">
+            <button @click="page='wiki'" class="text-xs text-brand-600 hover:text-brand-800 flex items-center gap-1">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>返回 Wiki
+            </button>
+        </div>
+        <div class="p-5 max-w-5xl mx-auto">
+            <div x-show="wikiDetailLoading" class="text-center py-16"><div class="spinner"></div></div>
+            <div x-show="!wikiDetailLoading&&wikiDetailData" class="bg-white rounded-xl border border-gray-100 overflow-hidden">
+                <div class="p-6 border-b border-gray-100">
+                    <div class="flex items-center gap-2 mb-1">
+                        <span class="text-sm px-2 py-0.5 rounded-full font-medium"
+                              :class="wikiDetailData?.meta?.type==='topic'?'bg-brand-50 text-brand-600':wikiDetailData?.meta?.type==='entity'?'bg-emerald-50 text-emerald-600':'bg-amber-50 text-amber-600'"
+                              x-text="wikiDetailData?.meta?.type==='topic'?'主题':wikiDetailData?.meta?.type==='entity'?'实体':'洞察'"></span>
+                        <h1 class="text-xl font-bold text-gray-900" x-text="wikiDetailData?.meta?.title||''"></h1>
+                    </div>
+                    <p class="text-sm text-gray-500 mt-2" x-text="wikiDetailData?.meta?.summary||''"></p>
+                    <div class="flex items-center gap-3 mt-3 text-[11px] text-gray-400">
+                        <span x-text="'来源: '+(wikiDetailData?.meta?.sources||[]).length+' 篇文章'"></span>
+                        <span x-text="'更新于 '+(wikiDetailData?.meta?.updated_at||'')"></span>
+                    </div>
+                </div>
+                <div class="p-6 prose max-w-none" x-html="renderMd(wikiDetailData?.body||'')"></div>
+            </div>
+        </div>
+    </div>
 </main>
 
 <script>
-function app() {
+const CAT_COLORS={
+    'AI & 技术':'bg-violet-400','产品 & 方法论':'bg-blue-400','职场 & 行业':'bg-amber-400',
+    '运营 & 增长':'bg-emerald-400','内容 & 创作':'bg-pink-400','工具 & 资源':'bg-cyan-400','其他':'bg-gray-400'
+};
+const CAT_NODE_COLORS={
+    'AI & 技术':['#8b5cf6','#7c3aed'],'产品 & 方法论':['#3b82f6','#2563eb'],'职场 & 行业':['#f59e0b','#d97706'],
+    '运营 & 增长':['#10b981','#059669'],'内容 & 创作':['#ec4899','#db2777'],'工具 & 资源':['#06b6d4','#0891b2'],'其他':['#6366f1','#4f46e5']
+};
+
+function app(){
     return {
-        page: 'home',
-        stats: {},
-        knowledgeList: [],
+        page:'graph',prevPage:'',dark:false,sidebarCollapsed:false,showPanel:true,tagExpanded:false,
+        stats:{knowledge_files:0,total_chunks:0},
+        categories:[],knowledgeList:[],filteredList:[],activeCategory:'',
+        tagStats:[],timeline:[],graphData:null,
+        detailData:null,detailLoading:false,
+        hoveredNode:null,tooltipX:0,tooltipY:0,
+        ingestUrl:'',ingestLoading:false,ingestResult:null,
+        searchQuery:'',searchLoading:false,searchResult:null,
+        quickSearch:'',simulation:null,
+        wikiPages:[],wikiDetailData:null,wikiDetailLoading:false,
+        wikiInspect:null,wikiLogContent:'',wikiGraphData:null,
+        wikiHoveredNode:null,wikiTooltipX:0,wikiTooltipY:0,wikiShowList:true,
 
-        // Detail
-        detailData: null,
-        detailLoading: false,
-
-        // Ingest
-        ingestUrl: '',
-        ingestLoading: false,
-        ingestStep: 0,
-        ingestSteps: ['抓取网页内容', 'LLM 结构化清洗', 'Markdown 落库', '向量索引'],
-        ingestResult: null,
-
-        // Search
-        searchQuery: '',
-        searchLoading: false,
-        searchResult: null,
-
-        async init() {
-            await this.loadStats();
-            await this.loadKnowledgeList();
+        async init(){
+            await Promise.all([this.loadStats(),this.loadCategories(),this.loadKnowledge(),this.loadTags(),this.loadTimeline(),this.loadGraph(),this.loadWikiPages(),this.loadWikiGraph()]);
+            this.$nextTick(()=>this.renderGraph());
         },
+        setPage(p){this.prevPage=this.page;this.page=p;if(p==='graph')this.$nextTick(()=>this.renderGraph());if(p==='wiki'){this.loadWikiPages();this.loadWikiGraph()}},
+        async loadStats(){try{this.stats=await(await fetch('/stats')).json()}catch(e){}},
+        async loadCategories(){try{const d=await(await fetch('/api/categories')).json();this.categories=d.categories||[]}catch(e){}},
+        async loadKnowledge(){try{const d=await(await fetch('/api/knowledge')).json();this.knowledgeList=d.items||[];this.filteredList=this.knowledgeList}catch(e){}},
+        async loadTags(){try{const d=await(await fetch('/api/tags')).json();this.tagStats=d.tags||[]}catch(e){}},
+        async loadTimeline(){try{const d=await(await fetch('/api/timeline')).json();this.timeline=d.items||[]}catch(e){}},
+        async loadGraph(){try{this.graphData=await(await fetch('/api/graph')).json()}catch(e){}},
 
-        async loadStats() {
-            try {
-                const r = await fetch('/stats');
-                this.stats = await r.json();
-            } catch(e) { console.error(e); }
-        },
+        // Wiki 方法
+        async loadWikiPages(){try{const d=await(await fetch('/api/wiki/pages')).json();this.wikiPages=d.pages||[]}catch(e){}},
+        async openWikiDetail(wp){this.prevPage=this.page;this.page='wikiDetail';this.wikiDetailLoading=true;this.wikiDetailData=null;try{this.wikiDetailData=await(await fetch('/api/wiki/page/'+encodeURIComponent(wp.path.split('/')[0])+'/'+encodeURIComponent(wp.path.split('/')[1]))).json()}catch(e){}this.wikiDetailLoading=false},
+        async runWikiInspect(){try{this.wikiInspect=await(await fetch('/api/wiki/inspect',{method:'POST'})).json()}catch(e){}},
+        async loadWikiLog(){try{const d=await(await fetch('/api/wiki/log')).json();this.wikiLogContent=d.content||''}catch(e){}},
+        async loadWikiGraph(){try{this.wikiGraphData=await(await fetch('/api/wiki/graph')).json();this.$nextTick(()=>this.renderWikiGraph())}catch(e){}},
 
-        async loadKnowledgeList() {
-            try {
-                const r = await fetch('/api/knowledge');
-                const data = await r.json();
-                this.knowledgeList = data.items || [];
-            } catch(e) { console.error(e); }
-        },
+        renderWikiGraph(){
+            const svg=d3.select('#wiki-graph-svg');svg.selectAll('*').remove();
+            if(!this.wikiGraphData)return;
+            const{nodes,edges}=this.wikiGraphData;if(!nodes.length)return;
+            const container=document.getElementById('wiki-graph-container');
+            if(!container)return;
+            const W=container.clientWidth,H=container.clientHeight;
+            svg.attr('width',W).attr('height',H);
 
-        async openDetail(item) {
-            this.page = 'detail';
-            this.detailLoading = true;
-            this.detailData = null;
-            try {
-                const filename = item.file_path.split('/').pop();
-                const r = await fetch('/api/knowledge/' + encodeURIComponent(filename));
-                this.detailData = await r.json();
-            } catch(e) { console.error(e); }
-            this.detailLoading = false;
-        },
+            const defs=svg.append('defs');
+            const grid=defs.append('pattern').attr('id','wgrid').attr('width',30).attr('height',30).attr('patternUnits','userSpaceOnUse');
+            grid.append('circle').attr('cx',15).attr('cy',15).attr('r',.8).attr('fill',this.dark?'#334155':'#cbd5e1');
+            svg.append('rect').attr('width',W).attr('height',H).attr('fill',this.dark?'#0f172a':'#f8faff');
+            svg.append('rect').attr('width',W).attr('height',H).attr('fill','url(#wgrid)');
 
-        async doIngest() {
-            if (!this.ingestUrl.trim() || this.ingestLoading) return;
-            this.ingestLoading = true;
-            this.ingestResult = null;
-            this.ingestStep = 0;
+            // 渐变
+            const gTopic=defs.append('radialGradient').attr('id','wgrad-topic');
+            gTopic.append('stop').attr('offset','0%').attr('stop-color','#818cf8');
+            gTopic.append('stop').attr('offset','100%').attr('stop-color','#4f46e5');
+            const gEntity=defs.append('radialGradient').attr('id','wgrad-entity');
+            gEntity.append('stop').attr('offset','0%').attr('stop-color','#34d399');
+            gEntity.append('stop').attr('offset','100%').attr('stop-color','#059669');
+            const gInsight=defs.append('radialGradient').attr('id','wgrad-insight');
+            gInsight.append('stop').attr('offset','0%').attr('stop-color','#fbbf24');
+            gInsight.append('stop').attr('offset','100%').attr('stop-color','#d97706');
 
-            // 模拟步骤进度
-            const stepInterval = setInterval(() => {
-                if (this.ingestStep < 3) this.ingestStep++;
-            }, 3000);
+            const g=svg.append('g');
+            svg.call(d3.zoom().scaleExtent([0.2,5]).on('zoom',e=>g.attr('transform',e.transform)));
 
-            try {
-                const r = await fetch('/ingest', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ url: this.ingestUrl.trim() })
-                });
-                clearInterval(stepInterval);
-                this.ingestStep = 4;
+            const nodeMap={};nodes.forEach(n=>nodeMap[n.id]=n);
+            const links=edges.filter(e=>nodeMap[e.source]&&nodeMap[e.target]).map(e=>({...e}));
 
-                if (r.ok) {
-                    const data = await r.json();
-                    this.ingestResult = data;
-                    this.ingestUrl = '';
-                    await this.loadKnowledgeList();
-                    await this.loadStats();
-                } else {
-                    const err = await r.json();
-                    this.ingestResult = { success: false, error: err.detail || '入库失败' };
+            const sim=d3.forceSimulation(nodes)
+                .force('link',d3.forceLink(links).id(d=>d.id).distance(d=>d.type==='reference'?80:120).strength(d=>d.type==='shared_source'?0.8:0.4))
+                .force('charge',d3.forceManyBody().strength(-300))
+                .force('center',d3.forceCenter(W/2,H/2))
+                .force('collision',d3.forceCollide().radius(35))
+                .force('x',d3.forceX(W/2).strength(0.06))
+                .force('y',d3.forceY(H/2).strength(0.06));
+
+            const link=g.append('g').selectAll('line').data(links).join('line')
+                .attr('stroke',d=>d.type==='shared_source'?'#34d399':'#a5b4fc')
+                .attr('stroke-width',d=>d.type==='shared_source'?Math.max(1.5,(d.weight||1)*2):1.2)
+                .attr('stroke-dasharray',d=>d.type==='shared_source'?'6,4':'3,3')
+                .attr('stroke-opacity',d=>d.type==='shared_source'?0.5:0.35);
+
+            const node=g.append('g').selectAll('g').data(nodes).join('g').attr('class','graph-node')
+                .call(d3.drag().on('start',(e,d)=>{if(!e.active)sim.alphaTarget(0.3).restart();d.fx=d.x;d.fy=d.y}).on('drag',(e,d)=>{d.fx=e.x;d.fy=e.y}).on('end',(e,d)=>{if(!e.active)sim.alphaTarget(0);d.fx=null;d.fy=null}));
+
+            const self=this;
+            node.each(function(d){
+                const el=d3.select(this);
+                const r=d.type==='entitie'?16:d.sources_count>1?24:20;
+                const gradId=d.type==='topic'?'wgrad-topic':d.type==='entitie'?'wgrad-entity':'wgrad-insight';
+                el.append('circle').attr('r',r).attr('fill',`url(#${gradId})`).attr('stroke','#fff').attr('stroke-width',2.5)
+                    .style('filter','drop-shadow(0 3px 6px rgba(0,0,0,0.15))');
+                const emoji=d.type==='topic'?'📝':d.type==='entitie'?'👤':'💡';
+                el.append('text').text(emoji).attr('text-anchor','middle').attr('dy','5px').attr('font-size','12px');
+                el.append('text').text(d.label.length>10?d.label.slice(0,10)+'…':d.label).attr('dy',r+14).attr('text-anchor','middle')
+                    .attr('font-size','10px').attr('fill',self.dark?'#94a3b8':'#475569').attr('font-weight','500');
+                if(d.sources_count>1){
+                    el.append('circle').attr('r',7).attr('cx',r-4).attr('cy',-r+4).attr('fill','#ef4444').attr('stroke','#fff').attr('stroke-width',1.5);
+                    el.append('text').text(d.sources_count).attr('x',r-4).attr('y',-r+7).attr('text-anchor','middle').attr('font-size','8px').attr('fill','#fff').attr('font-weight','700');
                 }
-            } catch(e) {
-                clearInterval(stepInterval);
-                this.ingestResult = { success: false, error: '网络错误: ' + e.message };
+            });
+
+            node.on('mouseover',(e,d)=>{
+                self.wikiHoveredNode=d;const r=container.getBoundingClientRect();self.wikiTooltipX=e.clientX-r.left+15;self.wikiTooltipY=e.clientY-r.top-10;
+                const conn=new Set();links.forEach(l=>{const s=l.source.id||l.source,t=l.target.id||l.target;if(s===d.id)conn.add(t);if(t===d.id)conn.add(s)});conn.add(d.id);
+                node.transition().duration(150).style('opacity',n=>conn.has(n.id)?1:0.15);
+                link.transition().duration(150).style('opacity',l=>{const s=l.source.id||l.source,t=l.target.id||l.target;return conn.has(s)&&conn.has(t)?1:0.03});
+            }).on('mouseout',()=>{
+                self.wikiHoveredNode=null;node.transition().duration(150).style('opacity',1);
+                link.transition().duration(150).style('opacity',d=>d.type==='shared_source'?0.5:0.35);
+            }).on('click',(e,d)=>{
+                const wp=self.wikiPages.find(p=>p.path===d.id);if(wp)self.openWikiDetail(wp);
+            });
+
+            sim.on('tick',()=>{
+                link.attr('x1',d=>d.source.x).attr('y1',d=>d.source.y).attr('x2',d=>d.target.x).attr('y2',d=>d.target.y);
+                node.attr('transform',d=>`translate(${d.x},${d.y})`);
+            });
+        },
+
+        filterCategory(cat){this.activeCategory=cat.name;this.filteredList=cat.items;this.page='index'},
+        searchByTag(tag){this.activeCategory=tag;this.filteredList=this.knowledgeList.filter(i=>(i.tags||[]).includes(tag));this.page='index'},
+        doQuickSearch(){if(this.quickSearch.trim()){this.searchQuery=this.quickSearch;this.quickSearch='';this.page='search';this.$nextTick(()=>this.doSearch())}},
+        async openDetail(item){this.prevPage=this.page;this.page='detail';this.detailLoading=true;this.detailData=null;try{const fn=item.file_path.split('/').pop();this.detailData=await(await fetch('/api/knowledge/'+encodeURIComponent(fn))).json()}catch(e){}this.detailLoading=false},
+        openDetailByPath(path){const item=this.knowledgeList.find(i=>i.file_path===path);if(item)this.openDetail(item)},
+        async doIngest(){if(!this.ingestUrl.trim()||this.ingestLoading)return;this.ingestLoading=true;this.ingestResult=null;try{const r=await fetch('/ingest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:this.ingestUrl.trim()})});if(r.ok){this.ingestResult=await r.json();this.ingestUrl='';await Promise.all([this.loadKnowledge(),this.loadStats(),this.loadCategories(),this.loadTags(),this.loadTimeline(),this.loadGraph()]);this.$nextTick(()=>{if(this.page==='graph')this.renderGraph()})}else{const e=await r.json();this.ingestResult={success:false,error:e.detail||'失败'}}}catch(e){this.ingestResult={success:false,error:e.message}}this.ingestLoading=false},
+        async doSearch(){if(!this.searchQuery.trim()||this.searchLoading)return;this.searchLoading=true;this.searchResult=null;try{const r=await fetch('/search',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:this.searchQuery.trim(),top_k:3})});if(r.ok)this.searchResult=await r.json()}catch(e){}this.searchLoading=false},
+
+        // 图谱
+        getNodeCategory(d){
+            if(!d.tags)return'其他';
+            for(const[cat,kws]of Object.entries({
+                'AI & 技术':['AI','人工智能','技术','模型','算法'],
+                '产品 & 方法论':['产品','方法论','设计','工作流','Coding'],
+                '职场 & 行业':['职场','行业','就业','焦虑','转型','职业','晋升'],
+                '内容 & 创作':['内容','创作','短剧','角色','视频'],
+                '工具 & 资源':['工具','资源','科技动态'],
+            })){for(const t of d.tags)if(kws.some(k=>t.includes(k)))return cat}
+            return'其他';
+        },
+
+        renderGraph(){
+            const svg=d3.select('#graph-svg');svg.selectAll('*').remove();
+            if(!this.graphData)return;
+            const{nodes,edges}=this.graphData;if(!nodes.length)return;
+            const container=document.getElementById('graph-container');
+            const W=container.clientWidth,H=container.clientHeight;
+            svg.attr('width',W).attr('height',H);
+
+            const defs=svg.append('defs');
+            // 网格背景
+            const grid=defs.append('pattern').attr('id','grid').attr('width',30).attr('height',30).attr('patternUnits','userSpaceOnUse');
+            grid.append('circle').attr('cx',15).attr('cy',15).attr('r',.8).attr('fill',this.dark?'#334155':'#cbd5e1');
+            svg.append('rect').attr('width',W).attr('height',H).attr('fill',this.dark?'#0f172a':'#f8faff');
+            svg.append('rect').attr('width',W).attr('height',H).attr('fill','url(#grid)');
+            // 箭头
+            defs.append('marker').attr('id','arrow').attr('viewBox','0 0 10 10').attr('refX',30).attr('refY',5).attr('markerWidth',6).attr('markerHeight',6).attr('orient','auto')
+                .append('path').attr('d','M0,0L10,5L0,10Z').attr('fill','#34d399');
+
+            // 分类渐变
+            for(const[cat,colors]of Object.entries(CAT_NODE_COLORS)){
+                const g=defs.append('radialGradient').attr('id','grad-'+cat.replace(/[^a-zA-Z]/g,''));
+                g.append('stop').attr('offset','0%').attr('stop-color',colors[0]);
+                g.append('stop').attr('offset','100%').attr('stop-color',colors[1]);
             }
-            this.ingestLoading = false;
+
+            const g=svg.append('g');
+            svg.call(d3.zoom().scaleExtent([0.2,5]).on('zoom',e=>g.attr('transform',e.transform)));
+
+            const nodeMap={};nodes.forEach(n=>nodeMap[n.id]=n);
+            const links=edges.filter(e=>nodeMap[e.source]&&nodeMap[e.target]).map(e=>({...e}));
+
+            const sim=d3.forceSimulation(nodes)
+                .force('link',d3.forceLink(links).id(d=>d.id).distance(d=>d.type==='has_tag'?50:100).strength(d=>d.type==='related'?0.8:0.4))
+                .force('charge',d3.forceManyBody().strength(d=>d.type==='article'?-350:-60))
+                .force('center',d3.forceCenter(W/2,H/2))
+                .force('collision',d3.forceCollide().radius(d=>d.type==='article'?42:16))
+                .force('x',d3.forceX(W/2).strength(0.06))
+                .force('y',d3.forceY(H/2).strength(0.06));
+
+            const link=g.append('g').selectAll('line').data(links).join('line')
+                .attr('stroke',d=>d.type==='related'?'#34d399':'#e2e8f0')
+                .attr('stroke-width',d=>d.type==='related'?Math.max(1.5,(d.weight||1)*2):0.6)
+                .attr('stroke-dasharray',d=>d.type==='related'?'6,4':null)
+                .attr('stroke-opacity',d=>d.type==='related'?0.5:0.2)
+                .attr('marker-end',d=>d.type==='related'?'url(#arrow)':null);
+
+            const node=g.append('g').selectAll('g').data(nodes).join('g').attr('class','graph-node')
+                .call(d3.drag().on('start',(e,d)=>{if(!e.active)sim.alphaTarget(0.3).restart();d.fx=d.x;d.fy=d.y}).on('drag',(e,d)=>{d.fx=e.x;d.fy=e.y}).on('end',(e,d)=>{if(!e.active)sim.alphaTarget(0);d.fx=null;d.fy=null}));
+
+            const self=this;
+            node.filter(d=>d.type==='article').each(function(d){
+                const el=d3.select(this);
+                const cat=self.getNodeCategory(d);
+                const gradId='grad-'+cat.replace(/[^a-zA-Z]/g,'');
+                el.append('circle').attr('r',20).attr('fill',`url(#${gradId})`).attr('stroke','#fff').attr('stroke-width',2.5)
+                    .style('filter','drop-shadow(0 3px 6px rgba(0,0,0,0.15))');
+                el.append('text').text(self.platformEmoji(d.platform)||'📄').attr('text-anchor','middle').attr('dy','5px').attr('font-size','13px');
+                el.append('text').text(d.label.length>12?d.label.slice(0,12)+'…':d.label).attr('dy',34).attr('text-anchor','middle')
+                    .attr('font-size','10px').attr('fill',self.dark?'#94a3b8':'#475569').attr('font-weight','500');
+            });
+            node.filter(d=>d.type==='tag').each(function(d){
+                const el=d3.select(this);const tw=d.label.length*7+12;
+                el.append('rect').attr('width',tw).attr('height',18).attr('x',-tw/2).attr('y',-9).attr('rx',9)
+                    .attr('fill',self.dark?'#1e293b':'#f1f5f9').attr('stroke',self.dark?'#475569':'#d1d5db').attr('stroke-width',.8);
+                el.append('text').text(d.label).attr('text-anchor','middle').attr('dy','3.5px').attr('font-size','9px').attr('fill',self.dark?'#94a3b8':'#64748b');
+            });
+
+            node.on('mouseover',(e,d)=>{
+                if(d.type==='article'){self.hoveredNode=d;const r=container.getBoundingClientRect();self.tooltipX=e.clientX-r.left+15;self.tooltipY=e.clientY-r.top-10}
+                const conn=new Set();links.forEach(l=>{const s=l.source.id||l.source,t=l.target.id||l.target;if(s===d.id)conn.add(t);if(t===d.id)conn.add(s)});conn.add(d.id);
+                node.transition().duration(150).style('opacity',n=>conn.has(n.id)?1:0.15);
+                link.transition().duration(150).style('opacity',l=>{const s=l.source.id||l.source,t=l.target.id||l.target;return conn.has(s)&&conn.has(t)?1:0.03});
+            }).on('mouseout',()=>{
+                self.hoveredNode=null;node.transition().duration(150).style('opacity',1);
+                link.transition().duration(150).style('opacity',d=>d.type==='related'?0.5:0.2);
+            }).on('click',(e,d)=>{
+                if(d.type==='article'){const item=self.knowledgeList.find(i=>i.file_path?.endsWith(d.id));if(item)self.openDetail(item)}
+                else if(d.type==='tag')self.searchByTag(d.label);
+            });
+
+            sim.on('tick',()=>{
+                link.attr('x1',d=>d.source.x).attr('y1',d=>d.source.y).attr('x2',d=>d.target.x).attr('y2',d=>d.target.y);
+                node.attr('transform',d=>`translate(${d.x},${d.y})`);
+            });
         },
 
-        async doSearch() {
-            if (!this.searchQuery.trim() || this.searchLoading) return;
-            this.searchLoading = true;
-            this.searchResult = null;
-            try {
-                const r = await fetch('/search', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ query: this.searchQuery.trim(), top_k: 3 })
-                });
-                if (r.ok) {
-                    this.searchResult = await r.json();
-                }
-            } catch(e) { console.error(e); }
-            this.searchLoading = false;
+        // 样式工具
+        tagStyle(tag){
+            const max=Math.max(...this.tagStats.map(t=>t.count),1),r=tag.count/max;
+            const s=Math.round(12+r*4);
+            const palettes=[
+                {bg:'#6366f1',t:'#fff'},{bg:'#8b5cf6',t:'#fff'},{bg:'#3b82f6',t:'#fff'},
+                {bg:'#0891b2',t:'#fff'},{bg:'#059669',t:'#fff'},{bg:'#d946ef',t:'#fff'},
+                {bg:'#e11d48',t:'#fff'},{bg:'#ea580c',t:'#fff'},{bg:'#4f46e5',t:'#fff'},
+            ];
+            const idx=Math.abs(tag.name.split('').reduce((a,c)=>a+c.charCodeAt(0),0))%palettes.length;
+            const p=palettes[idx];
+            const opacity=0.7+r*0.3;
+            return`font-size:${s}px;background:${p.bg};color:${p.t};opacity:${opacity}`;
         },
-
-        platformLabel(p) {
-            const map = { wechat: '公众号', xiaohongshu: '小红书', general: '网页', manual: '手动' };
-            return map[p] || p || '未知';
+        catColor(name){return CAT_COLORS[name]||'bg-gray-400'},
+        platformLabel(p){return{wechat:'公众号',xiaohongshu:'小红书',general:'网页',manual:'手动'}[p]||p||''},
+        platformEmoji(p){return{wechat:'💬',xiaohongshu:'📕',general:'🌐',manual:'✏️'}[p]||'📄'},
+        platformBg(p){return{wechat:'bg-green-100 text-green-600',xiaohongshu:'bg-red-100 text-red-600',general:'bg-blue-100 text-blue-600',manual:'bg-gray-100 text-gray-600'}[p]||'bg-gray-100 text-gray-500'},
+        platformStripe(p){return{wechat:'bg-green-400',xiaohongshu:'bg-red-400',general:'bg-blue-400',manual:'bg-gray-400'}[p]||'bg-gray-300'},
+        relativeTime(dt){
+            if(!dt)return'';
+            const diff=Date.now()-new Date(dt.replace(' ','T')).getTime();
+            const m=Math.floor(diff/60000),h=Math.floor(m/60),d=Math.floor(h/24);
+            if(m<1)return'刚刚';if(m<60)return m+'分钟前';if(h<24)return h+'小时前';if(d<7)return d+'天前';
+            return dt.slice(5,10);
         },
-
-        renderMarkdown(md) {
-            if (!md) return '';
-            try { return marked.parse(md); } catch(e) { return md; }
-        }
+        renderMd(md){if(!md)return'';try{return marked.parse(md)}catch(e){return md}},
     }
 }
 </script>

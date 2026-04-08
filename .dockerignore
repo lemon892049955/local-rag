@@ -1,0 +1,14 @@
+.venv
+__pycache__
+*.pyc
+.env
+.git
+.gitignore
+vectordb/
+data/
+.codebuddy/
+wiki/topics/
+wiki/entities/
+wiki/insights/
+wiki/_index.md
+wiki/_log.md

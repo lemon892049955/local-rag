@@ -10,10 +10,14 @@ load_dotenv()
 BASE_DIR = Path(__file__).parent
 DATA_DIR = BASE_DIR / "data"
 VECTORDB_DIR = BASE_DIR / "vectordb"
+WIKI_DIR = BASE_DIR / "wiki"
 
 # 确保目录存在
 DATA_DIR.mkdir(exist_ok=True)
 VECTORDB_DIR.mkdir(exist_ok=True)
+WIKI_DIR.mkdir(exist_ok=True)
+for _subdir in ["topics", "entities", "insights"]:
+    (WIKI_DIR / _subdir).mkdir(exist_ok=True)
 
 # ===== LLM Provider =====
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "kimi")
@@ -52,6 +56,7 @@ PORT = int(os.getenv("PORT", "8900"))
 
 # ===== ChromaDB =====
 CHROMA_COLLECTION_NAME = "knowledge_chunks"
+WIKI_COLLECTION_NAME = "wiki_chunks"
 
 # ===== 企业微信 =====
 def get_wecom_config() -> dict:

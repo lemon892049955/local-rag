@@ -6,6 +6,9 @@
   python cli.py reindex          - 重建索引
   python cli.py list             - 列出所有知识文件
   python cli.py stats            - 系统状态
+  python cli.py wiki-compile     - 全量 Wiki 编译（存量迁移）
+  python cli.py wiki-inspect     - Wiki 健康检查
+  python cli.py wiki-list        - 列出所有 Wiki 页面
 """
 
 import asyncio
@@ -154,6 +157,74 @@ def cmd_stats():
     print(f"   索引切片数: {idx_stats['total_chunks']}")
 
 
+async def cmd_wiki_compile():
+    """全量 Wiki 编译"""
+    from wiki.compiler import WikiCompiler
+
+    compiler = WikiCompiler()
+    print("📝 开始全量 Wiki 编译...\n")
+
+    count = 0
+    for md_file in sorted(DATA_DIR.glob("*.md")):
+        print(f"  编译: {md_file.name}")
+        try:
+            result = await compiler.compile(md_file)
+            for detail in result.get("log_details", []):
+                print(f"    {detail}")
+            count += 1
+        except Exception as e:
+            print(f"    ❌ 失败: {e}")
+
+    # 重建索引
+    from wiki.index_builder import rebuild_index
+    rebuild_index()
+
+    print(f"\n✅ 编译完成! 处理了 {count} 篇文章")
+
+
+def cmd_wiki_inspect():
+    """Wiki 健康检查"""
+    from wiki.inspector import inspect
+
+    print("🔍 正在检查 Wiki 健康状态...\n")
+    report = inspect()
+
+    print(f"📊 {report['summary']}\n")
+
+    if report["orphan_pages"]:
+        print(f"  🔗 孤立页面 ({len(report['orphan_pages'])}):")
+        for p in report["orphan_pages"]:
+            print(f"    - {p}")
+
+    if report["missing_pages"]:
+        print(f"  ❓ 缺失引用 ({len(report['missing_pages'])}):")
+        for p in report["missing_pages"]:
+            print(f"    - [[{p}]]")
+
+    if report["stale_pages"]:
+        print(f"  ⏰ 过时页面 ({len(report['stale_pages'])}):")
+        for p in report["stale_pages"]:
+            print(f"    - {p['title']} (更新于 {p['updated_at']})")
+
+
+def cmd_wiki_list():
+    """列出所有 Wiki 页面"""
+    from wiki.page_store import list_wiki_pages
+
+    pages = list_wiki_pages()
+    if not pages:
+        print("📭 Wiki 为空，请先入库文章触发编译")
+        return
+
+    print(f"📝 Wiki 共 {len(pages)} 个页面:\n")
+    for p in pages:
+        sources_count = len(p.get("sources", []))
+        print(f"  [{p.get('type', '')}] {p.get('title', '')}")
+        print(f"    摘要: {p.get('summary', '')}")
+        print(f"    来源: {sources_count} 篇 | 路径: {p.get('path', '')}")
+        print()
+
+
 def main():
     if len(sys.argv) < 2:
         print(__doc__)
@@ -196,6 +267,15 @@ def main():
         from config import HOST, PORT
         print(f"🚀 启动服务: http://{HOST}:{PORT}")
         uvicorn.run("main:app", host=HOST, port=int(PORT), reload=True)
+
+    elif command == "wiki-compile":
+        asyncio.run(cmd_wiki_compile())
+
+    elif command == "wiki-inspect":
+        cmd_wiki_inspect()
+
+    elif command == "wiki-list":
+        cmd_wiki_list()
 
     else:
         print(f"未知命令: {command}")

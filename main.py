@@ -20,18 +20,26 @@ from ingestion.router import FetcherRouter
 from transform.llm_cleaner import LLMCleaner
 from storage.markdown_engine import MarkdownEngine
 from retrieval.indexer import VectorIndexer
-from retrieval.searcher import RAGSearcher
+from retrieval.hybrid_searcher import HybridSearcher
 from utils.url_utils import normalize_url, check_duplicate
 
 app = FastAPI(
     title="Local RAG - 个人碎片知识落库系统",
-    description="本地化优先的个人知识资产管理与 RAG 问答系统",
-    version="0.2.0",
+    description="本地化优先的个人知识资产管理与 RAG 问答系统（Wiki 编译模式）",
+    version="0.3.0",
 )
 
 # 注册企业微信回调路由
 from wecom.callback import router as wecom_router
 app.include_router(wecom_router)
+
+
+# ===== Wiki 编译 Worker 启动 =====
+@app.on_event("startup")
+async def startup_event():
+    from wiki.compile_queue import start_compile_worker
+    await start_compile_worker()
+
 
 # 全局组件（延迟初始化以加速启动）
 _router = None
@@ -72,7 +80,7 @@ def get_indexer():
 def get_searcher():
     global _searcher
     if _searcher is None:
-        _searcher = RAGSearcher(indexer=get_indexer())
+        _searcher = HybridSearcher(indexer=get_indexer())
     return _searcher
 
 
@@ -94,7 +102,8 @@ class SearchRequest(BaseModel):
 
 class SearchResponse(BaseModel):
     answer: str
-    sources: list[dict]
+    sources: list
+    debug: dict = {}
 
 
 # ===== 端点 =====
@@ -147,19 +156,26 @@ async def ingest(req: IngestRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"文件保存失败: {e}")
 
-    # 5. 向量索引
+    # 5. 向量索引 + BM25 索引
     try:
         chunk_count = get_indexer().index_file(filepath)
+        get_searcher().rebuild_bm25()
     except Exception as e:
-        # 索引失败不阻断流程，文件已保存
         chunk_count = 0
+
+    # 6. Wiki 编译入队（异步，不阻塞响应）
+    try:
+        from wiki.compile_queue import enqueue_compile
+        await enqueue_compile(filepath)
+    except Exception:
+        pass
 
     return IngestResponse(
         success=True,
         file_path=str(filepath),
         title=knowledge.title,
         tags=knowledge.tags,
-        message=f"入库成功，生成 {chunk_count} 个索引切片",
+        message=f"入库成功，生成 {chunk_count} 个索引切片，Wiki 编译已排队",
     )
 
 
@@ -178,6 +194,7 @@ async def search(req: SearchRequest):
     return SearchResponse(
         answer=result["answer"],
         sources=result["sources"],
+        debug=result.get("debug", {}),
     )
 
 
@@ -193,8 +210,12 @@ async def stats():
     """系统状态"""
     indexer_stats = get_indexer().get_stats()
     file_count = len(list(DATA_DIR.glob("*.md")))
+    # Wiki 统计
+    from config import WIKI_DIR
+    wiki_count = sum(1 for _ in WIKI_DIR.glob("**/*.md") if not _.name.startswith("_"))
     return {
         "knowledge_files": file_count,
+        "wiki_pages": wiki_count,
         **indexer_stats,
     }
 
@@ -205,7 +226,110 @@ async def root():
     index_path = BASE_DIR / "web" / "index.html"
     if index_path.exists():
         return FileResponse(index_path)
-    return {"name": "Local RAG", "version": "0.2.0", "hint": "Web UI not found, visit /docs"}
+    return {"name": "Local RAG", "version": "0.3.0", "hint": "Web UI not found, visit /docs"}
+
+
+# ===== Wiki API =====
+
+@app.get("/api/wiki/pages")
+async def list_wiki_pages():
+    """Wiki 页面列表"""
+    from wiki.page_store import list_wiki_pages as _list
+    pages = _list()
+    return {"pages": pages, "total": len(pages)}
+
+
+@app.get("/api/wiki/graph")
+async def get_wiki_graph():
+    """Wiki 知识图谱 — 节点=Wiki页面，边=[[交叉引用]]关系"""
+    import re
+    from wiki.page_store import list_wiki_pages, read_page
+
+    pages = list_wiki_pages()
+    nodes = []
+    edges = []
+    title_to_path = {}
+
+    for p in pages:
+        path = p.get("path", "")
+        title = p.get("title", "")
+        title_to_path[title] = path
+        nodes.append({
+            "id": path,
+            "label": title[:20],
+            "title": title,
+            "type": p.get("type", "topic"),
+            "summary": p.get("summary", ""),
+            "sources_count": len(p.get("sources", [])),
+            "updated_at": p.get("updated_at", ""),
+        })
+
+    # 扫描交叉引用 [[]]
+    for p in pages:
+        path = p.get("path", "")
+        page_data = read_page(path)
+        if not page_data:
+            continue
+        refs = re.findall(r"\[\[(.+?)\]\]", page_data.get("full_content", ""))
+        for ref in refs:
+            target_path = title_to_path.get(ref, "")
+            if target_path and target_path != path:
+                edges.append({"source": path, "target": target_path, "type": "reference"})
+
+    # 共享来源关联
+    path_sources = {}
+    for p in pages:
+        path_sources[p.get("path", "")] = set(p.get("sources", []))
+    paths = list(path_sources.keys())
+    for i in range(len(paths)):
+        for j in range(i + 1, len(paths)):
+            shared = path_sources[paths[i]] & path_sources[paths[j]]
+            if shared:
+                edges.append({
+                    "source": paths[i], "target": paths[j],
+                    "type": "shared_source", "weight": len(shared),
+                })
+
+    return {"nodes": nodes, "edges": edges}
+
+
+@app.get("/api/wiki/log")
+async def get_wiki_log():
+    """获取 Wiki 操作日志"""
+    from config import WIKI_DIR
+    log_path = WIKI_DIR / "_log.md"
+    if not log_path.exists():
+        return {"content": ""}
+    return {"content": log_path.read_text(encoding="utf-8")}
+
+
+@app.get("/api/wiki/page/{subdir}/{filename}")
+async def get_wiki_page(subdir: str, filename: str):
+    """Wiki 页面详情"""
+    from wiki.page_store import read_page
+    page_path = f"{subdir}/{filename}"
+    page = read_page(page_path)
+    if not page:
+        raise HTTPException(status_code=404, detail="Wiki 页面不存在")
+    return page
+
+
+@app.post("/api/wiki/compile-all")
+async def compile_all_articles():
+    """对 data/ 中所有文章执行全量 Wiki 编译（存量迁移用）"""
+    from wiki.compile_queue import enqueue_compile
+    count = 0
+    for md_file in sorted(DATA_DIR.glob("*.md")):
+        await enqueue_compile(md_file)
+        count += 1
+    return {"success": True, "queued": count, "message": f"已将 {count} 篇文章加入编译队列"}
+
+
+@app.post("/api/wiki/inspect")
+async def wiki_inspect():
+    """Wiki 健康检查"""
+    from wiki.inspector import inspect
+    return inspect()
 
 
 # ===== 知识库 API =====
@@ -256,6 +380,97 @@ async def delete_knowledge(filename: str):
     except Exception:
         pass
     return {"success": True, "message": f"已删除: {filename}"}
+
+
+@app.get("/api/categories")
+async def get_categories():
+    """分类聚合 - 基于标签自动聚类"""
+    files = get_engine().list_all()
+    categories = {}
+    category_rules = {
+        "AI & 技术": ["AI", "人工智能", "技术", "深度学习", "机器学习", "模型", "算法", "编程", "开发", "架构", "工程"],
+        "产品 & 方法论": ["产品", "方法论", "设计", "工作流", "SOP", "流程", "策略", "框架", "Coding"],
+        "职场 & 行业": ["职场", "行业", "就业", "求职", "薪资", "焦虑", "转型", "职业"],
+        "运营 & 增长": ["运营", "增长", "营销", "推广", "电商", "转化", "投放"],
+        "内容 & 创作": ["内容", "创作", "写作", "文案", "短剧", "视频", "自媒体", "角色"],
+        "工具 & 资源": ["工具", "资源", "分享", "推荐", "教程", "指南", "科技动态"],
+    }
+    for item in files:
+        tags = item.get("tags", [])
+        matched = False
+        for cat_name, keywords in category_rules.items():
+            for tag in tags:
+                if any(kw in tag for kw in keywords):
+                    categories.setdefault(cat_name, []).append(item)
+                    matched = True
+                    break
+            if matched:
+                break
+        if not matched:
+            categories.setdefault("其他", []).append(item)
+
+    result = [{"name": n, "count": len(items), "items": items}
+              for n, items in categories.items()]
+    result.sort(key=lambda x: -x["count"])
+    return {"categories": result, "total": len(files)}
+
+
+@app.get("/api/graph")
+async def get_knowledge_graph():
+    """知识图谱 - 节点(文章+标签) + 边(关联)"""
+    files = get_engine().list_all()
+    nodes, edges, tag_set, ftmap = [], [], set(), {}
+
+    for item in files:
+        fn = item.get("file_path", "").split("/")[-1]
+        tags = item.get("tags", [])
+        ftmap[fn] = set(tags)
+        nodes.append({
+            "id": fn, "label": item.get("title", "")[:30], "type": "article",
+            "tags": tags, "summary": item.get("summary", ""),
+            "platform": item.get("source_platform", ""),
+            "date": item.get("created_at", ""), "url": item.get("source_url", ""),
+        })
+        for tag in tags:
+            if tag not in tag_set:
+                tag_set.add(tag)
+                nodes.append({"id": f"tag:{tag}", "label": tag, "type": "tag"})
+            edges.append({"source": fn, "target": f"tag:{tag}", "type": "has_tag"})
+
+    fns = list(ftmap.keys())
+    for i in range(len(fns)):
+        for j in range(i + 1, len(fns)):
+            shared = ftmap[fns[i]] & ftmap[fns[j]]
+            if shared:
+                edges.append({"source": fns[i], "target": fns[j],
+                              "type": "related", "shared_tags": list(shared),
+                              "weight": len(shared)})
+    return {"nodes": nodes, "edges": edges}
+
+
+@app.get("/api/tags")
+async def get_tag_stats():
+    """标签统计 - 用于标签云"""
+    files = get_engine().list_all()
+    tc = {}
+    for item in files:
+        for tag in item.get("tags", []):
+            tc[tag] = tc.get(tag, 0) + 1
+    tags = sorted([{"name": k, "count": v} for k, v in tc.items()],
+                  key=lambda x: -x["count"])
+    return {"tags": tags, "total_tags": len(tags)}
+
+
+@app.get("/api/timeline")
+async def get_timeline():
+    """时间轴"""
+    files = get_engine().list_all()
+    items = [{"title": f.get("title", ""), "date": f.get("created_at", ""),
+              "tags": f.get("tags", []), "platform": f.get("source_platform", ""),
+              "file_path": f.get("file_path", ""), "summary": f.get("summary", "")}
+             for f in files]
+    items.sort(key=lambda x: x["date"], reverse=True)
+    return {"items": items}
 
 
 # ===== 静态文件 =====

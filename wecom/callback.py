@@ -169,6 +169,13 @@ async def process_ingest(user_id: str, url: str):
         indexer = VectorIndexer()
         indexer.index_file(filepath)
 
+        # Wiki 编译入队
+        try:
+            from wiki.compile_queue import enqueue_compile
+            await enqueue_compile(filepath, user_id=user_id)
+        except Exception:
+            pass
+
         # 成功通知
         notify_ingest_success(user_id, knowledge.title, knowledge.tags, url)
 
@@ -180,10 +187,10 @@ async def process_ingest(user_id: str, url: str):
 async def process_search(user_id: str, query: str):
     """后台异步搜索"""
     try:
-        from retrieval.searcher import RAGSearcher
+        from retrieval.hybrid_searcher import HybridSearcher
 
-        searcher = RAGSearcher()
-        result = await searcher.search(query=query, top_k=3)
+        searcher = HybridSearcher()
+        result = await searcher.search(query=query, top_k=5)
 
         answer = result.get("answer", "未找到相关内容")
         sources = result.get("sources", [])
