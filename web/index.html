@@ -90,7 +90,7 @@
 
     <nav class="flex-1 overflow-y-auto py-2 px-2">
         <div class="mb-3">
-            <template x-for="nav in [{id:'graph',icon:'🔗',label:'知识图谱'},{id:'wiki',icon:'📝',label:'Wiki'},{id:'index',icon:'📑',label:'知识索引'},{id:'ingest',icon:'➕',label:'入库'},{id:'search',icon:'🔍',label:'搜索'}]" :key="nav.id">
+            <template x-for="nav in [{id:'graph',icon:'🔗',label:'知识图谱'},{id:'index',icon:'📑',label:'知识索引'},{id:'ingest',icon:'➕',label:'入库'},{id:'search',icon:'🔍',label:'搜索'}]" :key="nav.id">
                 <div @click="setPage(nav.id)" class="sidebar-item rounded-lg px-3 py-2 text-sm flex items-center gap-2 cursor-pointer mb-0.5" :class="page===nav.id&&'active'">
                     <span x-text="nav.icon" class="w-5 text-center flex-shrink-0"></span>
                     <span x-show="!sidebarCollapsed" x-text="nav.label" class="truncate"></span>
@@ -123,70 +123,109 @@
 <!-- ===== 主内容区 ===== -->
 <main class="flex-1 min-h-screen overflow-x-hidden">
 
-    <!-- ===== 知识图谱 ===== -->
+    <!-- ===== 知识图谱 (融合 Wiki) ===== -->
     <div x-show="page==='graph'" x-cloak class="h-screen flex flex-col">
         <!-- 顶栏 -->
         <div class="h-12 flex items-center justify-between px-5 border-b border-gray-100 bg-white/80 backdrop-blur flex-shrink-0">
             <div class="flex items-center gap-3">
                 <h1 class="font-semibold text-gray-800 text-sm">知识图谱</h1>
-                <span class="text-[11px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full" x-text="'已索引 '+stats.total_chunks+' 切片 · 关联 '+stats.knowledge_files+' 篇知识'"></span>
+                <span class="text-[11px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full" x-text="wikiPages.length+' Wiki 页面 · '+stats.knowledge_files+' 篇原始文章'"></span>
             </div>
             <div class="flex items-center gap-3 text-[11px] text-gray-400">
-                <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-brand-500 inline-block"></span> 文章</span>
-                <span class="flex items-center gap-1"><span class="w-4 h-2 rounded bg-gray-300 inline-block"></span> 标签</span>
-                <span class="flex items-center gap-1"><span class="w-5 border-t-2 border-dashed border-emerald-400 inline-block"></span> 关联</span>
+                <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-brand-500 inline-block"></span> 主题</span>
+                <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span> 实体</span>
+                <span class="flex items-center gap-1"><span class="w-5 border-t border-dashed border-brand-300 inline-block"></span> 引用</span>
+                <span class="flex items-center gap-1"><span class="w-5 border-t-2 border-dashed border-emerald-400 inline-block"></span> 共源</span>
                 <button @click="showPanel=!showPanel" class="ml-1 px-2 py-0.5 rounded bg-gray-100 hover:bg-gray-200 text-gray-500 text-[11px] transition">
                     <span x-text="showPanel?'⟩':'⟨'"></span>
                 </button>
             </div>
         </div>
         <div class="flex-1 flex overflow-hidden">
-            <!-- 图谱 -->
-            <div class="flex-1 relative" id="graph-container">
-                <svg id="graph-svg"></svg>
+            <!-- Wiki 图谱 (主区域) -->
+            <div class="flex-1 relative" id="wiki-graph-container">
+                <svg id="wiki-graph-svg"></svg>
                 <!-- Tooltip -->
-                <div x-show="hoveredNode" x-cloak class="absolute bg-white/95 dark:bg-surface-800/95 backdrop-blur-sm rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 p-4 max-w-xs z-10 pointer-events-none"
-                     :style="`left:${tooltipX}px;top:${tooltipY}px`">
+                <div x-show="wikiHoveredNode" x-cloak class="absolute bg-white/95 dark:bg-surface-800/95 backdrop-blur-sm rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 p-4 max-w-xs z-10 pointer-events-none"
+                     :style="`left:${wikiTooltipX}px;top:${wikiTooltipY}px`">
                     <div class="flex items-center gap-2 mb-1">
-                        <span class="platform-icon" :class="platformBg(hoveredNode?.platform)" x-text="platformEmoji(hoveredNode?.platform)"></span>
-                        <div class="font-semibold text-sm text-gray-800" x-text="hoveredNode?.label"></div>
+                        <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" :class="wikiHoveredNode?.type==='topic'?'bg-brand-500':wikiHoveredNode?.type==='entitie'?'bg-emerald-500':'bg-amber-500'"></span>
+                        <div class="font-semibold text-sm text-gray-800" x-text="wikiHoveredNode?.title"></div>
                     </div>
-                    <div class="text-xs text-gray-500 leading-relaxed line-clamp-3" x-text="hoveredNode?.summary"></div>
-                    <div class="flex gap-1 mt-2 flex-wrap" x-show="hoveredNode?.tags?.length">
-                        <template x-for="t in (hoveredNode?.tags||[]).slice(0,4)" :key="t">
-                            <span class="tag bg-brand-50 text-brand-700 dark:bg-brand-800/30 dark:text-brand-300" x-text="t"></span>
-                        </template>
+                    <div class="text-xs text-gray-500 leading-relaxed line-clamp-3" x-text="wikiHoveredNode?.summary"></div>
+                    <div class="flex gap-2 mt-2 text-[10px] text-gray-400">
+                        <span x-text="(wikiHoveredNode?.sources_count||0)+' 个来源'"></span>
+                        <span x-text="'更新于 '+(wikiHoveredNode?.updated_at||'')"></span>
                     </div>
-                    <div class="text-[10px] text-gray-400 mt-2 italic">点击查看详情</div>
+                    <div class="text-[10px] text-gray-400 mt-1 italic">点击查看详情</div>
                 </div>
             </div>
-            <!-- 右侧面板 -->
+            <!-- 右侧面板 (合并) -->
             <div x-show="showPanel" x-cloak class="w-64 border-l border-gray-100 bg-white flex-shrink-0 overflow-y-auto transition-all">
+                <!-- 工具按钮 -->
+                <div class="p-3 border-b border-gray-50 flex gap-2">
+                    <button @click="loadWikiLog()" class="flex-1 text-[10px] text-brand-500 hover:text-brand-700 px-2 py-1.5 rounded-lg bg-brand-50 hover:bg-brand-100 transition text-center">编译日志</button>
+                    <button @click="runWikiInspect()" class="flex-1 text-[10px] text-brand-500 hover:text-brand-700 px-2 py-1.5 rounded-lg bg-brand-50 hover:bg-brand-100 transition text-center">健康检查</button>
+                </div>
+                <!-- 健康检查 -->
+                <div x-show="wikiInspect" x-cloak class="p-3 border-b border-gray-50 fade-in">
+                    <div class="flex items-center justify-between mb-1">
+                        <span class="text-[10px] font-semibold text-gray-400 uppercase">检查结果</span>
+                        <button @click="wikiInspect=null" class="text-gray-400 hover:text-gray-600 text-[10px]">关闭</button>
+                    </div>
+                    <p class="text-[11px] text-gray-600 mb-1" x-text="wikiInspect?.summary"></p>
+                    <div x-show="wikiInspect?.orphan_pages?.length" class="text-[10px] text-amber-600">孤立: <span x-text="wikiInspect?.orphan_pages?.join('、')"></span></div>
+                    <div x-show="wikiInspect?.missing_pages?.length" class="text-[10px] text-red-500">缺失: <span x-text="wikiInspect?.missing_pages?.map(p=>'[['+p+']]').join('、')"></span></div>
+                </div>
+                <!-- 编译日志 -->
+                <div x-show="wikiLogContent" x-cloak class="p-3 border-b border-gray-50 fade-in">
+                    <div class="flex items-center justify-between mb-1">
+                        <span class="text-[10px] font-semibold text-gray-400 uppercase">编译日志</span>
+                        <button @click="wikiLogContent=''" class="text-gray-400 hover:text-gray-600 text-[10px]">关闭</button>
+                    </div>
+                    <div class="prose text-[11px] max-h-40 overflow-y-auto" x-html="renderMd(wikiLogContent)"></div>
+                </div>
+                <!-- Wiki 页面列表 -->
+                <div class="p-3 border-b border-gray-50">
+                    <div class="text-[10px] font-semibold text-gray-400 uppercase tracking-widest mb-2">Wiki 页面</div>
+                    <div class="space-y-1">
+                        <template x-for="wp in wikiPages" :key="wp.path">
+                            <div class="rounded-lg px-2 py-1.5 cursor-pointer hover:bg-gray-50 transition group" @click="openWikiDetail(wp)">
+                                <div class="flex items-center gap-1.5">
+                                    <span class="w-2 h-2 rounded-full flex-shrink-0"
+                                          :class="wp.type==='topic'?'bg-brand-400':wp.type==='entitie'?'bg-emerald-400':'bg-amber-400'"></span>
+                                    <span class="text-[11px] font-medium text-gray-700 group-hover:text-brand-600 truncate" x-text="wp.title"></span>
+                                    <span class="text-[9px] text-gray-300 flex-shrink-0 ml-auto" x-text="(wp.sources||[]).length"></span>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
                 <!-- 标签云 -->
-                <div class="p-4 border-b border-gray-50">
+                <div class="p-3 border-b border-gray-50">
                     <div class="flex items-center justify-between mb-2">
                         <span class="text-[10px] font-semibold text-gray-400 uppercase tracking-widest">标签云</span>
                         <button @click="tagExpanded=!tagExpanded" class="text-[10px] text-brand-500 hover:text-brand-700" x-text="tagExpanded?'收起':'展开'"></button>
                     </div>
-                    <div class="flex flex-wrap gap-2" :class="!tagExpanded&&'max-h-32 overflow-hidden'">
+                    <div class="flex flex-wrap gap-1.5" :class="!tagExpanded&&'max-h-24 overflow-hidden'">
                         <template x-for="tag in tagStats" :key="tag.name">
-                            <span class="tag-cloud-item" :style="tagStyle(tag)" @click="searchByTag(tag.name)" x-text="tag.name"></span>
+                            <span class="tag-cloud-item" :style="tagStyle(tag)" @click="searchByTag(tag.name)" x-text="tag.name" style="font-size:11px!important;padding:3px 10px!important"></span>
                         </template>
                     </div>
                 </div>
                 <!-- 时间轴 -->
-                <div class="p-4">
+                <div class="p-3">
                     <div class="text-[10px] font-semibold text-gray-400 uppercase tracking-widest mb-3">入库时间轴</div>
-                    <div class="relative pl-5 space-y-3">
+                    <div class="relative pl-5 space-y-2.5">
                         <div class="absolute left-[7px] top-1 bottom-1 w-px bg-gradient-to-b from-brand-400 to-brand-100 dark:from-brand-600 dark:to-brand-900"></div>
-                        <template x-for="item in timeline.slice(0,10)" :key="item.file_path">
+                        <template x-for="item in timeline.slice(0,8)" :key="item.file_path">
                             <div class="relative cursor-pointer group" @click="openDetailByPath(item.file_path)">
-                                <div class="absolute -left-5 top-0.5 w-3 h-3 rounded-full border-2 border-brand-400 bg-white dark:bg-surface-800 group-hover:bg-brand-400 group-hover:scale-110 transition"></div>
+                                <div class="absolute -left-5 top-0.5 w-2.5 h-2.5 rounded-full border-2 border-brand-400 bg-white dark:bg-surface-800 group-hover:bg-brand-400 group-hover:scale-110 transition"></div>
                                 <div class="flex items-center gap-1.5 mb-0.5">
-                                    <span class="platform-icon text-[9px]" :class="platformBg(item.platform)" x-text="platformEmoji(item.platform)"></span>
-                                    <span class="text-xs font-medium text-gray-700 group-hover:text-brand-600 transition truncate" x-text="item.title"></span>
+                                    <span class="platform-icon text-[8px]" :class="platformBg(item.platform)" x-text="platformEmoji(item.platform)"></span>
+                                    <span class="text-[11px] font-medium text-gray-700 group-hover:text-brand-600 transition truncate" x-text="item.title"></span>
                                 </div>
-                                <span class="text-[10px] text-gray-400" x-text="relativeTime(item.date)"></span>
+                                <span class="text-[9px] text-gray-400" x-text="relativeTime(item.date)"></span>
                             </div>
                         </template>
                     </div>
@@ -305,97 +344,11 @@
         </div>
     </div>
 
-    <!-- ===== Wiki 浏览 ===== -->
-    <div x-show="page==='wiki'" x-cloak class="h-screen flex flex-col">
-        <!-- 顶栏 -->
-        <div class="h-12 flex items-center justify-between px-5 border-b border-gray-100 bg-white/80 backdrop-blur flex-shrink-0">
-            <div class="flex items-center gap-3">
-                <h1 class="font-semibold text-gray-800 text-sm">Wiki 知识网络</h1>
-                <span class="text-[11px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full" x-text="wikiPages.length+' 个页面'"></span>
-            </div>
-            <div class="flex items-center gap-3 text-[11px] text-gray-400">
-                <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-brand-500 inline-block"></span> 主题</span>
-                <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span> 实体</span>
-                <span class="flex items-center gap-1"><span class="w-5 border-t border-dashed border-brand-400 inline-block"></span> 引用</span>
-                <span class="flex items-center gap-1"><span class="w-5 border-t-2 border-dashed border-emerald-400 inline-block"></span> 共源</span>
-                <button @click="wikiShowList=!wikiShowList" class="ml-1 px-2 py-0.5 rounded bg-gray-100 hover:bg-gray-200 text-gray-500 text-[11px] transition">
-                    <span x-text="wikiShowList?'⟩':'⟨'"></span>
-                </button>
-            </div>
-        </div>
-        <div class="flex-1 flex overflow-hidden">
-            <!-- Wiki 图谱 -->
-            <div class="flex-1 relative" id="wiki-graph-container">
-                <svg id="wiki-graph-svg"></svg>
-                <!-- Tooltip -->
-                <div x-show="wikiHoveredNode" x-cloak class="absolute bg-white/95 dark:bg-surface-800/95 backdrop-blur-sm rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 p-4 max-w-xs z-10 pointer-events-none"
-                     :style="`left:${wikiTooltipX}px;top:${wikiTooltipY}px`">
-                    <div class="flex items-center gap-2 mb-1">
-                        <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" :class="wikiHoveredNode?.type==='topic'?'bg-brand-500':wikiHoveredNode?.type==='entitie'?'bg-emerald-500':'bg-amber-500'"></span>
-                        <div class="font-semibold text-sm text-gray-800" x-text="wikiHoveredNode?.title"></div>
-                    </div>
-                    <div class="text-xs text-gray-500 leading-relaxed line-clamp-3" x-text="wikiHoveredNode?.summary"></div>
-                    <div class="flex gap-2 mt-2 text-[10px] text-gray-400">
-                        <span x-text="(wikiHoveredNode?.sources_count||0)+' 个来源'"></span>
-                        <span x-text="'更新于 '+(wikiHoveredNode?.updated_at||'')"></span>
-                    </div>
-                    <div class="text-[10px] text-gray-400 mt-1 italic">点击查看详情</div>
-                </div>
-            </div>
-            <!-- 右侧面板 -->
-            <div x-show="wikiShowList" x-cloak class="w-72 border-l border-gray-100 bg-white flex-shrink-0 overflow-y-auto transition-all">
-                <!-- 工具栏 -->
-                <div class="p-3 border-b border-gray-50 flex gap-2">
-                    <button @click="loadWikiLog()" class="flex-1 text-[11px] text-brand-500 hover:text-brand-700 px-2 py-1.5 rounded-lg bg-brand-50 hover:bg-brand-100 transition text-center">编译日志</button>
-                    <button @click="runWikiInspect()" class="flex-1 text-[11px] text-brand-500 hover:text-brand-700 px-2 py-1.5 rounded-lg bg-brand-50 hover:bg-brand-100 transition text-center">健康检查</button>
-                </div>
-                <!-- 健康检查报告 -->
-                <div x-show="wikiInspect" x-cloak class="p-3 border-b border-gray-50 fade-in">
-                    <div class="flex items-center justify-between mb-1">
-                        <span class="text-[10px] font-semibold text-gray-400 uppercase">健康检查</span>
-                        <button @click="wikiInspect=null" class="text-gray-400 hover:text-gray-600 text-[10px]">关闭</button>
-                    </div>
-                    <p class="text-[11px] text-gray-600 mb-1" x-text="wikiInspect?.summary"></p>
-                    <div x-show="wikiInspect?.orphan_pages?.length" class="text-[10px] text-amber-600">孤立: <span x-text="wikiInspect?.orphan_pages?.join('、')"></span></div>
-                    <div x-show="wikiInspect?.missing_pages?.length" class="text-[10px] text-red-500">缺失: <span x-text="wikiInspect?.missing_pages?.map(p=>'[['+p+']]').join('、')"></span></div>
-                </div>
-                <!-- 编译日志 -->
-                <div x-show="wikiLogContent" x-cloak class="p-3 border-b border-gray-50 fade-in">
-                    <div class="flex items-center justify-between mb-1">
-                        <span class="text-[10px] font-semibold text-gray-400 uppercase">编译日志</span>
-                        <button @click="wikiLogContent=''" class="text-gray-400 hover:text-gray-600 text-[10px]">关闭</button>
-                    </div>
-                    <div class="prose text-[11px] max-h-48 overflow-y-auto" x-html="renderMd(wikiLogContent)"></div>
-                </div>
-                <!-- 页面列表 -->
-                <div class="p-3">
-                    <div class="text-[10px] font-semibold text-gray-400 uppercase tracking-widest mb-2">所有页面</div>
-                    <div class="space-y-1.5">
-                        <template x-for="wp in wikiPages" :key="wp.path">
-                            <div class="rounded-lg px-3 py-2 cursor-pointer hover:bg-gray-50 transition group" @click="openWikiDetail(wp)">
-                                <div class="flex items-center gap-2">
-                                    <span class="w-2 h-2 rounded-full flex-shrink-0"
-                                          :class="wp.type==='topic'?'bg-brand-400':wp.type==='entitie'?'bg-emerald-400':'bg-amber-400'"></span>
-                                    <span class="text-xs font-medium text-gray-700 group-hover:text-brand-600 truncate" x-text="wp.title"></span>
-                                </div>
-                                <div class="text-[10px] text-gray-400 ml-4 mt-0.5 truncate" x-text="wp.summary"></div>
-                                <div class="flex gap-2 ml-4 mt-0.5 text-[9px] text-gray-300">
-                                    <span x-text="(wp.sources||[]).length+' 来源'"></span>
-                                    <span x-text="wp.updated_at"></span>
-                                </div>
-                            </div>
-                        </template>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
     <!-- ===== Wiki 详情页 ===== -->
     <div x-show="page==='wikiDetail'" x-cloak class="fade-in">
         <div class="h-12 flex items-center px-5 border-b border-gray-100 bg-white/80 backdrop-blur">
-            <button @click="page='wiki'" class="text-xs text-brand-600 hover:text-brand-800 flex items-center gap-1">
-                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>返回 Wiki
+            <button @click="page='graph'" class="text-xs text-brand-600 hover:text-brand-800 flex items-center gap-1">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>返回图谱
             </button>
         </div>
         <div class="p-5 max-w-5xl mx-auto">
@@ -447,9 +400,8 @@ function app(){
 
         async init(){
             await Promise.all([this.loadStats(),this.loadCategories(),this.loadKnowledge(),this.loadTags(),this.loadTimeline(),this.loadGraph(),this.loadWikiPages(),this.loadWikiGraph()]);
-            this.$nextTick(()=>this.renderGraph());
         },
-        setPage(p){this.prevPage=this.page;this.page=p;if(p==='graph')this.$nextTick(()=>this.renderGraph());if(p==='wiki'){this.loadWikiPages();this.loadWikiGraph()}},
+        setPage(p){this.prevPage=this.page;this.page=p;if(p==='graph'){this.loadWikiPages();this.loadWikiGraph()}},
         async loadStats(){try{this.stats=await(await fetch('/stats')).json()}catch(e){}},
         async loadCategories(){try{const d=await(await fetch('/api/categories')).json();this.categories=d.categories||[]}catch(e){}},
         async loadKnowledge(){try{const d=await(await fetch('/api/knowledge')).json();this.knowledgeList=d.items||[];this.filteredList=this.knowledgeList}catch(e){}},
