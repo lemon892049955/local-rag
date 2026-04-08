@@ -2,6 +2,11 @@
 
 ## 2026-04-08
 
+- **14:15 INGEST** | 来源: `260408_45WyPAD9_梁宁：五年商业洞察与个人成长.md`
+  - 创建: topics/梁宁的商业洞察与个人成长.md (梁宁：五年商业洞察与个人成长)
+  - 更新: topics/AI产品经理的职场焦虑与挑战.md (追加洞察)
+
+
 - **11:37 INGEST** | 来源: `260407_fiSkSzHX_Karpathy的AI个人知识库搭建教程.md`
   - 创建: topics/Karpathy的AI个人知识库搭建教程.md (Karpathy的AI个人知识库搭建教程)
   - 更新: topics/Karpathy的AI个人知识库搭建教程.md (追加洞察)

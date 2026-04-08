@@ -25,20 +25,26 @@ from utils.url_utils import normalize_url, check_duplicate
 
 app = FastAPI(
     title="Local RAG - 个人碎片知识落库系统",
-    description="本地化优先的个人知识资产管理与 RAG 问答系统（Wiki 编译模式）",
-    version="0.3.0",
+    description="本地化优先的个人知识资产管理与 RAG 问答系统（v0.5 智能助手）",
+    version="0.5.0",
 )
 
 # 注册企业微信回调路由
 from wecom.callback import router as wecom_router
 app.include_router(wecom_router)
 
+# 注册 AI 助手路由
+from assistant.router import router as assistant_router
+app.include_router(assistant_router)
 
-# ===== Wiki 编译 Worker 启动 =====
+
+# ===== Wiki 编译 Worker + 推送调度器启动 =====
 @app.on_event("startup")
 async def startup_event():
     from wiki.compile_queue import start_compile_worker
     await start_compile_worker()
+    from assistant.scheduler import start_scheduler
+    await start_scheduler()
 
 
 # 全局组件（延迟初始化以加速启动）
@@ -305,7 +311,7 @@ async def root():
     index_path = BASE_DIR / "web" / "index.html"
     if index_path.exists():
         return FileResponse(index_path)
-    return {"name": "Local RAG", "version": "0.4.0", "hint": "Web UI not found, visit /docs"}
+    return {"name": "Local RAG", "version": "0.5.0", "hint": "Web UI not found, visit /docs"}
 
 
 # ===== Wiki API =====
@@ -409,6 +415,24 @@ async def wiki_inspect():
     """Wiki 健康检查"""
     from wiki.inspector import inspect
     return inspect()
+
+
+# ===== 推送 & 通知 API =====
+
+@app.get("/api/assistant/notifications")
+async def get_notifications():
+    """获取待推送通知（Web 端轮询）"""
+    from assistant.scheduler import get_pending_notifications
+    notifs = get_pending_notifications()
+    return {"notifications": notifs}
+
+
+@app.post("/api/assistant/push/{push_type}")
+async def trigger_push_api(push_type: str):
+    """手动触发推送 — weekly / review / association / health"""
+    from assistant.scheduler import trigger_push
+    content = await trigger_push(push_type)
+    return {"success": bool(content), "content": content}
 
 
 # ===== 知识库 API =====

@@ -397,6 +397,258 @@
     </div>
 </main>
 
+<!-- ===== 右下角悬浮窗 AI 助手 ===== -->
+<div x-data="assistant()" class="fixed bottom-5 right-5 z-50" x-cloak>
+    <!-- 悬浮按钮 -->
+    <div x-show="!chatOpen" @click="chatOpen=true" class="w-14 h-14 bg-brand-600 hover:bg-brand-700 rounded-full flex items-center justify-center cursor-pointer shadow-xl hover:shadow-2xl transition-all hover:scale-105 relative group">
+        <svg class="w-7 h-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg>
+        <span x-show="unreadCount>0" class="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full text-[10px] flex items-center justify-center font-bold" x-text="unreadCount"></span>
+        <div class="absolute bottom-full right-0 mb-2 px-3 py-1.5 bg-gray-800 text-white text-xs rounded-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition pointer-events-none">
+            AI 助手 · 按 Ctrl+K 打开
+        </div>
+    </div>
+
+    <!-- 聊天窗口 -->
+    <div x-show="chatOpen" x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 translate-y-4 scale-95" x-transition:enter-end="opacity-100 translate-y-0 scale-100"
+         class="w-96 h-[560px] bg-white dark:bg-surface-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 flex flex-col overflow-hidden">
+
+        <!-- 顶栏 -->
+        <div class="h-12 bg-brand-600 flex items-center justify-between px-4 flex-shrink-0">
+            <div class="flex items-center gap-2">
+                <div class="w-7 h-7 bg-white/20 rounded-full flex items-center justify-center">
+                    <svg class="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
+                </div>
+                <span class="text-white font-medium text-sm">AI 助手</span>
+                <span class="text-white/60 text-[10px]" x-text="sessionId?'对话中':'新对话'"></span>
+            </div>
+            <div class="flex items-center gap-1">
+                <button @click="clearChat()" class="w-7 h-7 rounded-lg hover:bg-white/20 flex items-center justify-center transition" title="新对话">
+                    <svg class="w-4 h-4 text-white/80" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
+                </button>
+                <button @click="chatOpen=false" class="w-7 h-7 rounded-lg hover:bg-white/20 flex items-center justify-center transition">
+                    <svg class="w-4 h-4 text-white/80" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                </button>
+            </div>
+        </div>
+
+        <!-- 消息列表 -->
+        <div class="flex-1 overflow-y-auto p-3 space-y-3" x-ref="chatMessages">
+            <!-- 欢迎消息 -->
+            <div x-show="messages.length===0" class="text-center py-8">
+                <div class="text-3xl mb-3">🤖</div>
+                <div class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">你好！我是你的知识库助手</div>
+                <div class="text-xs text-gray-400 mb-4">搜索知识、粘贴链接入库、查看状态，随时找我~</div>
+                <div class="flex flex-wrap gap-2 justify-center">
+                    <template x-for="q in quickQuestions" :key="q">
+                        <button @click="sendMessage(q)" class="text-[11px] px-3 py-1.5 bg-brand-50 text-brand-600 rounded-full hover:bg-brand-100 transition" x-text="q"></button>
+                    </template>
+                </div>
+            </div>
+
+            <!-- 消息列表 -->
+            <template x-for="(msg,i) in messages" :key="i">
+                <div class="flex gap-2" :class="msg.role==='user'?'justify-end':''">
+                    <!-- 助手头像 -->
+                    <div x-show="msg.role==='assistant'" class="w-7 h-7 bg-brand-100 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
+                        <span class="text-xs">🤖</span>
+                    </div>
+                    <!-- 消息气泡 -->
+                    <div class="max-w-[80%] rounded-xl px-3 py-2 text-[13px] leading-relaxed"
+                         :class="msg.role==='user'?'bg-brand-600 text-white rounded-br-sm':'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded-bl-sm'">
+                        <!-- 状态消息 -->
+                        <div x-show="msg.type==='status'" class="flex items-center gap-1.5">
+                            <div class="spinner" style="width:12px;height:12px;border-width:2px" x-show="msg.loading"></div>
+                            <span x-text="msg.content" class="text-[12px]"></span>
+                        </div>
+                        <!-- 普通消息 -->
+                        <div x-show="msg.type!=='status'">
+                            <div x-show="msg.role==='assistant'" class="prose text-[13px]" x-html="renderMdAssist(msg.content)"></div>
+                            <div x-show="msg.role==='user'" x-text="msg.content"></div>
+                        </div>
+                    </div>
+                </div>
+            </template>
+
+            <!-- 加载指示 -->
+            <div x-show="isTyping" class="flex gap-2">
+                <div class="w-7 h-7 bg-brand-100 rounded-full flex items-center justify-center flex-shrink-0"><span class="text-xs">🤖</span></div>
+                <div class="bg-gray-100 dark:bg-gray-700 rounded-xl px-3 py-2 rounded-bl-sm">
+                    <div class="flex gap-1"><span class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay:0s"></span><span class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay:0.15s"></span><span class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay:0.3s"></span></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 通知条 -->
+        <div x-show="notification" x-cloak class="px-3 py-2 bg-amber-50 border-t border-amber-200 text-[11px] text-amber-700 flex items-center justify-between flex-shrink-0">
+            <span x-text="notification"></span>
+            <button @click="notification=''" class="text-amber-500 hover:text-amber-700">&times;</button>
+        </div>
+
+        <!-- 输入区 -->
+        <div class="border-t border-gray-100 dark:border-gray-700 p-3 flex-shrink-0">
+            <div class="flex gap-2">
+                <input x-model="inputText" @keydown.enter="sendMessage()" placeholder="搜索知识、粘贴链接入库..."
+                    class="flex-1 text-[13px] border border-gray-200 dark:border-gray-600 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white dark:bg-surface-900 dark:text-gray-200"
+                    :disabled="isTyping">
+                <button @click="sendMessage()" :disabled="isTyping||!inputText.trim()"
+                    class="w-9 h-9 bg-brand-600 hover:bg-brand-700 disabled:bg-gray-300 rounded-xl flex items-center justify-center transition flex-shrink-0">
+                    <svg class="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
+                </button>
+            </div>
+            <div class="flex items-center justify-between mt-1.5">
+                <span class="text-[10px] text-gray-400">Enter 发送 · 支持粘贴链接自动入库</span>
+                <button @click="toggleNotifications()" class="text-[10px] text-brand-500 hover:text-brand-700">
+                    <span x-text="notifEnabled?'🔔 推送已开':'🔕 推送已关'"></span>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// ===== AI 助手组件 =====
+function assistant() {
+    return {
+        chatOpen: false,
+        messages: [],
+        inputText: '',
+        isTyping: false,
+        sessionId: '',
+        notification: '',
+        notifEnabled: true,
+        unreadCount: 0,
+        _notifInterval: null,
+        quickQuestions: ['最近入了什么？', '知识库有多少篇？', '推荐一篇回顾'],
+
+        init() {
+            // Ctrl+K 快捷键
+            document.addEventListener('keydown', (e) => {
+                if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+                    e.preventDefault();
+                    this.chatOpen = !this.chatOpen;
+                }
+                if (e.key === 'Escape' && this.chatOpen) {
+                    this.chatOpen = false;
+                }
+            });
+            // 定时拉取通知
+            this._notifInterval = setInterval(() => this.checkNotifications(), 60000);
+        },
+
+        async sendMessage(text) {
+            const msg = (text || this.inputText || '').trim();
+            if (!msg || this.isTyping) return;
+            this.inputText = '';
+
+            // 用户消息
+            this.messages.push({role: 'user', content: msg, type: 'text'});
+            this.scrollToBottom();
+
+            this.isTyping = true;
+            let assistantIdx = -1;
+
+            try {
+                const resp = await fetch('/api/assistant/chat', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({message: msg, session_id: this.sessionId || null}),
+                });
+
+                const reader = resp.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                while (true) {
+                    const {done, value} = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, {stream: true});
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop();
+
+                    for (const line of lines) {
+                        if (!line.startsWith('data: ')) continue;
+                        try {
+                            const data = JSON.parse(line.slice(6));
+
+                            if (data.type === 'meta') {
+                                this.sessionId = data.session_id;
+                            } else if (data.type === 'status') {
+                                this.messages.push({role: 'assistant', content: data.text, type: 'status', loading: true});
+                                this.scrollToBottom();
+                            } else if (data.type === 'content') {
+                                if (assistantIdx === -1) {
+                                    this.messages.push({role: 'assistant', content: '', type: 'text'});
+                                    assistantIdx = this.messages.length - 1;
+                                }
+                                this.messages[assistantIdx].content += data.text;
+                                this.scrollToBottom();
+                            } else if (data.type === 'done') {
+                                // mark status messages as done
+                                this.messages.forEach(m => { if (m.type === 'status') m.loading = false; });
+                            } else if (data.type === 'error') {
+                                this.messages.push({role: 'assistant', content: data.text, type: 'text'});
+                            }
+                        } catch(e) {}
+                    }
+                }
+            } catch(e) {
+                this.messages.push({role: 'assistant', content: '连接失败，请稍后重试', type: 'text'});
+            }
+
+            this.isTyping = false;
+            this.scrollToBottom();
+        },
+
+        clearChat() {
+            if (this.sessionId) {
+                fetch(`/api/assistant/sessions/${this.sessionId}`, {method: 'DELETE'}).catch(()=>{});
+            }
+            this.messages = [];
+            this.sessionId = '';
+        },
+
+        async checkNotifications() {
+            if (!this.notifEnabled) return;
+            try {
+                const r = await fetch('/api/assistant/notifications');
+                if (r.ok) {
+                    const data = await r.json();
+                    const items = data.notifications || [];
+                    if (items.length > 0) {
+                        this.unreadCount += items.length;
+                        if (!this.chatOpen) return;
+                        items.forEach(n => {
+                            this.notification = n.content?.slice(0, 80) || '';
+                        });
+                    }
+                }
+            } catch(e) {}
+        },
+
+        toggleNotifications() {
+            this.notifEnabled = !this.notifEnabled;
+        },
+
+        scrollToBottom() {
+            this.$nextTick(() => {
+                const el = this.$refs.chatMessages;
+                if (el) el.scrollTop = el.scrollHeight;
+            });
+        },
+
+        renderMdAssist(md) {
+            if (!md) return '';
+            try { return marked.parse(md); } catch(e) { return md; }
+        },
+
+        destroy() {
+            if (this._notifInterval) clearInterval(this._notifInterval);
+        }
+    }
+}
+</script>
+
 <script>
 const CAT_COLORS={
     'AI & 技术':'bg-violet-400','产品 & 方法论':'bg-blue-400','职场 & 行业':'bg-amber-400',

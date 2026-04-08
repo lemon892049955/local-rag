@@ -96,18 +96,32 @@ async def receive_msg(
 
     logger.info(f"收到消息: type={msg_type}, from={from_user}, content={content[:100]}")
 
-    # 处理文本消息 - 提取链接
+    # 处理文本消息 — 意图识别分发
     if msg_type == "text" and content:
+        # 推送订阅管理
+        if content.strip() in ("订阅推送", "开启推送"):
+            from assistant.scheduler import add_subscriber
+            add_subscriber(from_user)
+            send_text_msg(from_user, "🔔 已开启推送通知！你将收到每周摘要、知识回顾等推送。\n发「取消推送」可关闭。")
+            return Response(content="success", media_type="text/plain")
+        if content.strip() in ("取消推送", "关闭推送"):
+            from assistant.scheduler import remove_subscriber
+            remove_subscriber(from_user)
+            send_text_msg(from_user, "🔕 已关闭推送通知。发「订阅推送」可重新开启。")
+            return Response(content="success", media_type="text/plain")
+
         urls = extract_urls(content)
         if urls:
             for url in urls:
                 background_tasks.add_task(process_ingest, from_user, url)
-            # 立即回复"已收到"
             send_text_msg(from_user, f"📥 已收到 {len(urls)} 条链接，正在处理中...")
+            # 自动订阅推送
+            from assistant.scheduler import add_subscriber
+            add_subscriber(from_user)
         else:
-            # 没有链接，当作搜索查询
-            background_tasks.add_task(process_search, from_user, content)
-            send_text_msg(from_user, f"🔍 正在搜索: {content[:50]}...")
+            # 走 AI 助手对话
+            background_tasks.add_task(process_assistant_chat, from_user, content)
+            send_text_msg(from_user, f"🤔 思考中...")
 
     # 处理链接消息 (微信转发的公众号文章等)
     elif msg_type == "link":
@@ -309,6 +323,51 @@ async def process_search(user_id: str, query: str):
     except Exception as e:
         logger.error(f"搜索失败: {query} - {e}")
         send_text_msg(user_id, f"❌ 搜索出错: {str(e)[:100]}")
+
+
+async def process_assistant_chat(user_id: str, message: str):
+    """后台 AI 助手对话 — 复用助手引擎，多轮对话"""
+    try:
+        from assistant.intent import detect_intent
+        from assistant.chat_engine import chat_once
+
+        # 使用企微 user_id 作为 session_id，保持多轮对话
+        session_id = f"wecom_{user_id}"
+        intent_result = detect_intent(message)
+
+        # 构建上下文
+        context = ""
+        if intent_result["intent"] == "search":
+            try:
+                from retrieval.hybrid_searcher import HybridSearcher
+                from retrieval.indexer import VectorIndexer
+                searcher = HybridSearcher(indexer=VectorIndexer())
+                result = await searcher.search(query=message, top_k=3)
+                answer = result.get("answer", "")
+                sources = result.get("sources", [])
+                source_list = "\n".join(f"  [{i+1}] {s.get('title', '未知')}" for i, s in enumerate(sources))
+                context = f"知识库搜索结果:\n\n{answer}\n\n参考来源:\n{source_list}"
+            except Exception:
+                pass
+        elif intent_result["intent"] == "stats":
+            from config import DATA_DIR, WIKI_DIR
+            file_count = len(list(DATA_DIR.glob("*.md")))
+            wiki_count = sum(1 for _ in WIKI_DIR.glob("**/*.md") if not _.name.startswith("_"))
+            context = f"系统状态: {file_count} 篇文章, {wiki_count} 个 Wiki 页面"
+
+        reply = await chat_once(session_id, message, context)
+        if not reply:
+            reply = "抱歉，暂时无法回复"
+
+        if len(reply) > 2000:
+            reply = reply[:1997] + "..."
+
+        send_text_msg(user_id, reply)
+
+    except Exception as e:
+        logger.error(f"助手对话失败: {message[:50]} - {e}")
+        # 降级到搜索
+        await process_search(user_id, message)
 
 
 # ===== 工具函数 =====
