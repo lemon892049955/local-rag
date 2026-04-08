@@ -122,14 +122,17 @@
             </template>
         </div>
         <div x-show="!sidebarCollapsed">
-            <div class="px-3 mb-1 text-[10px] font-semibold text-gray-400 uppercase tracking-widest">分类</div>
-            <template x-for="cat in categories" :key="cat.name">
-                <div @click="filterCategory(cat)" class="sidebar-item rounded-lg px-3 py-1.5 text-xs flex items-center justify-between cursor-pointer" :class="activeCategory===cat.name&&'active'">
+            <div class="px-3 mb-1 flex items-center justify-between">
+                <span class="text-[10px] font-semibold text-gray-400 uppercase tracking-widest">热门标签</span>
+                <button @click="activeCategory='';filteredList=knowledgeList;page='index'" x-show="activeCategory" class="text-[10px] text-brand-500 hover:text-brand-700">清除</button>
+            </div>
+            <template x-for="tag in tagStats.slice(0,15)" :key="tag.name">
+                <div @click="searchByTag(tag.name)" class="sidebar-item rounded-lg px-3 py-1.5 text-xs flex items-center justify-between cursor-pointer" :class="activeCategory===tag.name&&'active'">
                     <span class="flex items-center gap-2 truncate">
-                        <span class="w-2 h-2 rounded-full flex-shrink-0" :class="catColor(cat.name)"></span>
-                        <span x-text="cat.name" class="truncate"></span>
+                        <span class="w-2 h-2 rounded-full flex-shrink-0" :style="'background:'+tagDotColor(tag.name)"></span>
+                        <span x-text="tag.name" class="truncate"></span>
                     </span>
-                    <span class="text-[10px] bg-gray-100 text-gray-500 rounded-full px-1.5 py-0.5 flex-shrink-0" x-text="cat.count"></span>
+                    <span class="text-[10px] bg-gray-100 text-gray-500 rounded-full px-1.5 py-0.5 flex-shrink-0" x-text="tag.count"></span>
                 </div>
             </template>
         </div>
@@ -876,6 +879,7 @@ function app(){
             return`font-size:${s}px;background:${p.bg};color:${p.t};opacity:${opacity}`;
         },
         catColor(name){return CAT_COLORS[name]||'bg-gray-400'},
+        tagDotColor(name){const palettes=['#6366f1','#8b5cf6','#3b82f6','#0891b2','#059669','#d946ef','#e11d48','#ea580c','#4f46e5'];const idx=Math.abs(name.split('').reduce((a,c)=>a+c.charCodeAt(0),0))%palettes.length;return palettes[idx]},
         platformLabel(p){return{wechat:'公众号',xiaohongshu:'小红书',general:'网页',manual:'手动'}[p]||p||''},
         platformEmoji(p){return{wechat:'💬',xiaohongshu:'📕',general:'🌐',manual:'✏️'}[p]||'📄'},
         platformBg(p){return{wechat:'bg-green-100 text-green-600',xiaohongshu:'bg-red-100 text-red-600',general:'bg-blue-100 text-blue-600',manual:'bg-gray-100 text-gray-600'}[p]||'bg-gray-100 text-gray-500'},
