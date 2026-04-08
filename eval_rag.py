@@ -48,6 +48,22 @@ TEST_CASES = [
         "expect_keywords": ["文科", "就业"],
         "category": "主题概览",
     },
+    # ===== 针对新入库文章 =====
+    {
+        "query": "AI 时代产品经理需要什么核心能力？",
+        "expect_keywords": ["产品经理", "结构化", "需求"],
+        "category": "长文验证",
+    },
+    {
+        "query": "Karpathy 是怎么搭建个人知识库的？",
+        "expect_keywords": ["Karpathy", "知识库", "LLM"],
+        "category": "跨源验证",
+    },
+    {
+        "query": "AI 漫剧在抖音的趋势是什么？",
+        "expect_keywords": ["漫剧", "抖音"],
+        "category": "图片密集验证",
+    },
 ]
 
 

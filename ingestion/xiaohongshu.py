@@ -1,24 +1,30 @@
-"""小红书抓取器 - 基于 MCP 协议 (降级为 HTTP 模拟)
+"""小红书抓取器 — MCP 优先 + HTTP 降级
 
-注意：完整的 MCP 抓取需要 xiaohongshu-mcp 服务端运行。
-此模块提供两种模式：
-1. MCP 模式：通过 MCP 协议调用（需要 mcp 服务端）
-2. 降级模式：通过 HTTP 请求 + 解析（有反爬限制）
+优先通过 xiaohongshu-mcp 服务获取完整数据（文字+图片+标签+互动），
+MCP 不可用时降级为 HTTP 直抓（受反爬限制）。
+
+MCP 服务启动方式（Docker）:
+  docker pull xpzouying/xiaohongshu-mcp
+  docker compose up -d
+  # 默认端口: http://localhost:18060/mcp
 """
 
 import json
 import re
+import logging
 import requests
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 
 from .base import BaseFetcher, RawContent, FetchError
 from utils.url_utils import extract_xhs_note_id
+
+logger = logging.getLogger(__name__)
 
 
 class XiaohongshuFetcher(BaseFetcher):
     """小红书笔记抓取器
 
-    优先使用 MCP 模式，失败时降级为基础 HTTP 抓取。
+    优先 MCP 模式（完整数据），失败降级 HTTP（有反爬限制）。
     """
 
     HEADERS = {
@@ -33,52 +39,190 @@ class XiaohongshuFetcher(BaseFetcher):
     def __init__(self, mcp_endpoint=None):
         """
         Args:
-            mcp_endpoint: MCP 服务的 HTTP 端点 (如 http://localhost:3000)
-                         为 None 时使用降级模式
+            mcp_endpoint: MCP 服务端点 (如 http://localhost:18060/mcp)
         """
         self.mcp_endpoint = mcp_endpoint
 
     async def fetch(self, url: str) -> RawContent:
         """抓取小红书笔记"""
-        # 优先尝试 MCP 模式
+        # 优先 MCP
         if self.mcp_endpoint:
             try:
-                return await self._fetch_via_mcp(url)
-            except Exception:
-                pass  # 降级
+                result = await self._fetch_via_mcp(url)
+                if result:
+                    return result
+            except Exception as e:
+                logger.warning(f"MCP 抓取失败，降级 HTTP: {e}")
 
-        # 降级：直接 HTTP 抓取
+        # 降级 HTTP
         return await self._fetch_via_http(url)
 
-    async def _fetch_via_mcp(self, url: str) -> RawContent:
-        """通过 MCP 协议抓取（需要 xiaohongshu-mcp 服务端）"""
-        note_id = extract_xhs_note_id(url)
-        if not note_id:
-            raise FetchError(url, "无法从 URL 中提取小红书笔记 ID")
+    # ===== MCP 模式 =====
 
-        try:
-            resp = requests.post(
-                f"{self.mcp_endpoint}/api/note",
-                json={"note_id": note_id},
-                timeout=30,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-        except Exception as e:
-            raise FetchError(url, f"MCP 调用失败: {e}")
+    async def _fetch_via_mcp(self, url: str) -> RawContent:
+        """通过 xiaohongshu-mcp 服务获取笔记完整数据"""
+        feed_id, xsec_token = self._extract_feed_params(url)
+
+        if not feed_id:
+            # 尝试先搜索获取
+            logger.info(f"URL 中未提取到 feed_id，尝试通过 MCP search 获取")
+            raise FetchError(url, "无法从 URL 中提取笔记 ID")
+
+        # 调用 MCP get_feed_detail
+        result = self._call_mcp_tool("get_feed_detail", {
+            "feed_id": feed_id,
+            "xsec_token": xsec_token or "",
+        })
+
+        if not result:
+            raise FetchError(url, "MCP get_feed_detail 返回空结果")
+
+        # 解析 MCP 返回的数据
+        title = result.get("title", "")
+        desc = result.get("desc", "") or result.get("content", "")
+        author = result.get("user", {}).get("nickname", "") if isinstance(result.get("user"), dict) else ""
+        images = result.get("images", [])
+        tags = []
+
+        # 提取标签
+        tag_list = result.get("tagList", []) or result.get("tags", [])
+        if isinstance(tag_list, list):
+            for t in tag_list:
+                if isinstance(t, dict):
+                    name = t.get("name", "")
+                    if name:
+                        tags.append(name)
+                elif isinstance(t, str) and t:
+                    tags.append(t)
+
+        # 提取图片 URL
+        image_urls = []
+        if isinstance(images, list):
+            for img in images:
+                if isinstance(img, str) and img.startswith("http"):
+                    image_urls.append(img)
+                elif isinstance(img, dict):
+                    img_url = img.get("urlDefault") or img.get("url") or img.get("src") or ""
+                    if img_url and img_url.startswith("http"):
+                        image_urls.append(img_url)
+
+        content = f"{title}\n\n{desc}" if title else desc
+
+        # 图文穿插
+        if image_urls and content.strip():
+            content = self._interleave_image_placeholders(content, len(image_urls))
+
+        if not content.strip() and not image_urls:
+            raise FetchError(url, "MCP 返回的笔记内容为空")
+
+        logger.info(f"MCP 抓取成功: {title[:30]}, {len(desc)}字, {len(image_urls)}张图")
 
         return RawContent(
             url=url,
-            title=data.get("title", ""),
-            content=data.get("content", ""),
-            author=data.get("author", ""),
+            title=title or "小红书笔记",
+            content=content or "(图片笔记)",
+            author=author,
             source_platform="xiaohongshu",
-            original_tags=data.get("tags", []),
+            original_tags=tags or None,
+            images=image_urls[:10] if image_urls else None,
         )
+
+    def _call_mcp_tool(self, tool_name: str, params: dict) -> dict:
+        """调用 MCP 服务的工具
+
+        xiaohongshu-mcp 支持 HTTP SSE 模式，端点: POST {mcp_endpoint}
+        """
+        try:
+            # MCP HTTP 协议: JSON-RPC over HTTP
+            payload = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {
+                    "name": tool_name,
+                    "arguments": params,
+                },
+            }
+            resp = requests.post(
+                self.mcp_endpoint,
+                json=payload,
+                timeout=30,
+                headers={"Content-Type": "application/json"},
+            )
+            resp.raise_for_status()
+
+            data = resp.json()
+
+            # 处理 JSON-RPC 响应
+            if "error" in data:
+                logger.error(f"MCP 错误: {data['error']}")
+                return None
+
+            result = data.get("result", {})
+
+            # MCP tools/call 的 result 格式: {"content": [{"type": "text", "text": "..."}]}
+            content_list = result.get("content", [])
+            if content_list:
+                for item in content_list:
+                    if item.get("type") == "text":
+                        text = item.get("text", "")
+                        try:
+                            return json.loads(text)
+                        except json.JSONDecodeError:
+                            return {"desc": text}
+            return result
+
+        except requests.exceptions.ConnectionError:
+            logger.warning(f"MCP 服务未运行: {self.mcp_endpoint}")
+            return None
+        except Exception as e:
+            logger.error(f"MCP 调用失败 [{tool_name}]: {e}")
+            return None
+
+    def _extract_feed_params(self, url: str) -> tuple:
+        """从小红书 URL 中提取 feed_id 和 xsec_token
+
+        支持格式:
+        - https://www.xiaohongshu.com/explore/xxxx
+        - https://www.xiaohongshu.com/discovery/item/xxxx
+        - https://xhslink.com/xxxx (短链需跳转)
+        """
+        parsed = urlparse(url)
+        query = parse_qs(parsed.query)
+
+        # 提取 xsec_token
+        xsec_token = query.get("xsec_token", [""])[0]
+
+        # 提取 feed_id
+        feed_id = extract_xhs_note_id(url)
+
+        # 短链: 先跳转获取真实 URL
+        if not feed_id and ("xhslink.com" in parsed.netloc or "xhs.cn" in parsed.netloc):
+            try:
+                resp = requests.head(url, headers=self.HEADERS, allow_redirects=True, timeout=10)
+                real_url = resp.url
+                feed_id = extract_xhs_note_id(real_url)
+                if not xsec_token:
+                    real_query = parse_qs(urlparse(real_url).query)
+                    xsec_token = real_query.get("xsec_token", [""])[0]
+            except Exception:
+                pass
+
+        return feed_id, xsec_token
+
+    def _mcp_search(self, keyword: str) -> list:
+        """通过 MCP 搜索小红书内容"""
+        result = self._call_mcp_tool("search_feeds", {"keyword": keyword})
+        if result and isinstance(result, list):
+            return result
+        if result and isinstance(result, dict):
+            return result.get("items", []) or result.get("feeds", [])
+        return []
+
+    # ===== HTTP 降级模式 =====
 
     async def _fetch_via_http(self, url: str) -> RawContent:
         """降级模式：HTTP 直接抓取"""
-        # 处理短链跳转
         try:
             resp = requests.get(
                 url, headers=self.HEADERS, timeout=15, allow_redirects=True
@@ -106,20 +250,14 @@ class XiaohongshuFetcher(BaseFetcher):
             return None
 
         try:
-            # 小红书的 JSON 中可能有 undefined，需要替换
             json_str = match.group(1).replace("undefined", "null")
             data = json.loads(json_str)
 
-            # 路径1: noteData.data.noteData (完整数据)
             note = (data.get("noteData", {})
                         .get("data", {})
                         .get("noteData", {}))
-
-            # 路径2: noteData.normalNotePreloadData (预加载数据)
             preload = (data.get("noteData", {})
                            .get("normalNotePreloadData", {}))
-
-            # 路径3: 旧版结构 note.noteDetailMap
             old_note_data = data.get("note", {}).get("noteDetailMap", {})
 
             title = ""
@@ -136,7 +274,6 @@ class XiaohongshuFetcher(BaseFetcher):
                 tag_list = note.get("tagList", [])
                 if isinstance(tag_list, list):
                     tags = [t.get("name", "") for t in tag_list if t.get("name")]
-                # 提取图片列表
                 for img in note.get("imageList", []):
                     img_url = img.get("urlDefault") or img.get("url") or ""
                     if img_url and img_url.startswith("http"):
@@ -165,7 +302,6 @@ class XiaohongshuFetcher(BaseFetcher):
 
             content = f"{title}\n\n{desc}" if title else desc
 
-            # 图文穿插：在正文段落之间插入图片占位符
             if image_urls and content.strip():
                 content = self._interleave_image_placeholders(content, len(image_urls))
 
@@ -173,7 +309,7 @@ class XiaohongshuFetcher(BaseFetcher):
                 return None
 
             return RawContent(
-                url="",  # 调用方会填充
+                url="",
                 title=title or "小红书笔记",
                 content=content or "(图片笔记)",
                 author=author,
@@ -184,30 +320,24 @@ class XiaohongshuFetcher(BaseFetcher):
         except (json.JSONDecodeError, StopIteration):
             return None
 
-    def _interleave_image_placeholders(self, content: str, image_count: int) -> str:
-        """将图片占位符均匀插入正文段落之间，模拟图文穿插。
+    # ===== 工具方法 =====
 
-        小红书的图片和文字天然分离（desc + imageList），
-        这里按段落数均匀分配，让 LLM 清洗时能理解图文上下文。
-        """
+    def _interleave_image_placeholders(self, content: str, image_count: int) -> str:
+        """将图片占位符均匀插入正文段落之间"""
         paragraphs = [p.strip() for p in content.split("\n") if p.strip()]
         if not paragraphs:
-            # 纯图片笔记
             return "\n\n".join(f"[IMG_{i+1}]" for i in range(image_count))
 
-        # 将 N 张图片均匀分布到段落之间
         result = []
         img_idx = 0
         step = max(1, len(paragraphs) / max(image_count, 1))
 
         for i, para in enumerate(paragraphs):
             result.append(para)
-            # 在合适的位置插入图片占位符
             if img_idx < image_count and (i + 1) >= round(step * (img_idx + 1)):
                 img_idx += 1
                 result.append(f"[IMG_{img_idx}]")
 
-        # 剩余未插入的图片追加到末尾
         while img_idx < image_count:
             img_idx += 1
             result.append(f"[IMG_{img_idx}]")
@@ -220,13 +350,11 @@ class XiaohongshuFetcher(BaseFetcher):
 
         soup = BeautifulSoup(html, "lxml")
 
-        # 尝试获取标题
         title = ""
         og_title = soup.find("meta", property="og:title")
         if og_title and og_title.get("content"):
             title = og_title["content"]
 
-        # 尝试获取描述
         content = ""
         og_desc = soup.find("meta", property="og:description")
         if og_desc and og_desc.get("content"):
@@ -235,7 +363,8 @@ class XiaohongshuFetcher(BaseFetcher):
         if not content:
             raise FetchError(
                 url,
-                "小红书反爬限制，建议启用 MCP 模式。请配置 xiaohongshu-mcp 服务端。"
+                "小红书反爬限制，建议启用 MCP 模式。"
+                "启动方式: docker pull xpzouying/xiaohongshu-mcp && docker compose up -d"
             )
 
         return RawContent(

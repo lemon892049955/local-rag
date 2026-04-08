@@ -14,6 +14,14 @@ class FetcherRouter:
     """抓取器路由 - 根据 URL 域名自动选择抓取器"""
 
     def __init__(self, xhs_mcp_endpoint=None):
+        # 自动从配置读取 MCP 端点
+        if xhs_mcp_endpoint is None:
+            try:
+                from config import XHS_MCP_ENDPOINT
+                xhs_mcp_endpoint = XHS_MCP_ENDPOINT or None
+            except ImportError:
+                pass
+
         self._fetchers: dict[str, BaseFetcher] = {
             "wechat": WechatFetcher(),
             "general": GeneralFetcher(),

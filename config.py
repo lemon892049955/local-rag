@@ -58,6 +58,9 @@ PORT = int(os.getenv("PORT", "8900"))
 CHROMA_COLLECTION_NAME = "knowledge_chunks"
 WIKI_COLLECTION_NAME = "wiki_chunks"
 
+# ===== 小红书 MCP =====
+XHS_MCP_ENDPOINT = os.getenv("XHS_MCP_ENDPOINT", "")  # 如 http://localhost:18060/mcp
+
 # ===== 企业微信 =====
 def get_wecom_config() -> dict:
     """获取企业微信配置"""
