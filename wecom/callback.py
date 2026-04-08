@@ -117,14 +117,112 @@ async def receive_msg(
             background_tasks.add_task(process_ingest, from_user, url)
             send_text_msg(from_user, f"📥 已收到「{title[:30]}」，正在入库...")
 
+    # 处理图片消息 → Vision OCR
+    elif msg_type == "image":
+        pic_url = msg.get("PicUrl", "")
+        if pic_url:
+            background_tasks.add_task(process_file_ingest, from_user, pic_url, "image")
+            send_text_msg(from_user, "🖼 已收到图片，正在 OCR 识别...")
+
+    # 处理语音消息 → Whisper 转录
+    elif msg_type == "voice":
+        media_id = msg.get("MediaId", "")
+        if media_id:
+            background_tasks.add_task(process_media_ingest, from_user, media_id, "voice")
+            send_text_msg(from_user, "🎤 已收到语音，正在转录...")
+
     # 其他消息类型
     else:
-        send_text_msg(from_user, "💡 发送链接自动入库，发送文字搜索知识库")
+        send_text_msg(from_user, "💡 支持：发链接入库、发文字搜索、发图片OCR、发语音转录")
 
     return Response(content="success", media_type="text/plain")
 
 
 # ===== 后台任务 =====
+
+async def process_file_ingest(user_id: str, file_url: str, file_type: str):
+    """后台异步处理文件入库（图片 OCR / 音频转录）"""
+    try:
+        import tempfile, requests as req
+        from ingestion.dispatcher import Dispatcher
+
+        # 下载文件
+        resp = req.get(file_url, timeout=30)
+        resp.raise_for_status()
+
+        suffix = ".png" if file_type == "image" else ".mp3"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp.write(resp.content)
+            tmp_path = tmp.name
+
+        from pathlib import Path
+        dispatcher = Dispatcher()
+        raw = await dispatcher.dispatch(tmp_path)
+
+        # 后续复用入库管线
+        from transform.llm_cleaner import LLMCleaner
+        from storage.markdown_engine import MarkdownEngine
+        from retrieval.indexer import VectorIndexer
+
+        cleaner = LLMCleaner()
+        knowledge = await cleaner.clean(
+            title=raw.title, content=raw.content,
+            source=raw.source_platform, author=raw.author,
+        )
+
+        engine = MarkdownEngine()
+        filepath = engine.save(
+            knowledge=knowledge, source_url=file_url,
+            source_platform=raw.source_platform, author=raw.author,
+        )
+
+        indexer = VectorIndexer()
+        indexer.index_file(filepath)
+
+        try:
+            from wiki.compile_queue import enqueue_compile
+            await enqueue_compile(filepath, user_id=user_id)
+        except Exception:
+            pass
+
+        notify_ingest_success(user_id, knowledge.title, knowledge.tags, file_url)
+
+        # 删除临时文件
+        Path(tmp_path).unlink(missing_ok=True)
+
+    except Exception as e:
+        logger.error(f"文件入库失败: {file_type} - {e}")
+        notify_ingest_fail(user_id, str(e), file_url)
+
+
+async def process_media_ingest(user_id: str, media_id: str, media_type: str):
+    """后台异步处理企微媒体文件（需要通过 media_id 下载）"""
+    try:
+        from wecom.sender import get_access_token
+        import requests as req, tempfile
+        from pathlib import Path
+
+        # 通过企微 API 下载媒体文件
+        token = get_access_token()
+        url = f"https://qyapi.weixin.qq.com/cgi-bin/media/get?access_token={token}&media_id={media_id}"
+        resp = req.get(url, timeout=30)
+
+        if resp.status_code != 200:
+            send_text_msg(user_id, f"❌ 媒体文件下载失败")
+            return
+
+        suffix = ".amr" if media_type == "voice" else ".tmp"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp.write(resp.content)
+            tmp_path = tmp.name
+
+        # 语音消息通常是 amr 格式，Whisper 可以直接处理
+        await process_file_ingest(user_id, f"file://{tmp_path}", media_type)
+        Path(tmp_path).unlink(missing_ok=True)
+
+    except Exception as e:
+        logger.error(f"媒体入库失败: {media_type}/{media_id} - {e}")
+        send_text_msg(user_id, f"❌ 处理失败: {str(e)[:100]}")
 
 async def process_ingest(user_id: str, url: str):
     """后台异步入库"""

@@ -9,7 +9,7 @@
 """
 
 from pathlib import Path
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, HttpUrl
@@ -179,6 +179,79 @@ async def ingest(req: IngestRequest):
     )
 
 
+@app.post("/ingest/upload", response_model=IngestResponse)
+async def ingest_upload(file: UploadFile = File(...)):
+    """文件上传入库 — 支持 PDF/图片/音频
+
+    multipart/form-data 上传文件，自动识别类型并解析。
+    """
+    from fastapi import UploadFile
+    import tempfile
+
+    if file is None:
+        raise HTTPException(status_code=400, detail="请上传文件")
+
+    # 保存到临时文件
+    suffix = Path(file.filename).suffix.lower() if file.filename else ""
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        content = await file.read()
+        tmp.write(content)
+        tmp_path = Path(tmp.name)
+
+    try:
+        from ingestion.dispatcher import Dispatcher
+        dispatcher = Dispatcher()
+        file_type = dispatcher.detect_type(str(tmp_path))
+
+        if file_type == "unknown":
+            raise HTTPException(status_code=400, detail=f"不支持的文件类型: {suffix}")
+
+        # 解析文件 → RawContent
+        raw = await dispatcher.dispatch(str(tmp_path))
+
+        # LLM 清洗
+        knowledge = await get_cleaner().clean(
+            title=raw.title,
+            content=raw.content,
+            source=raw.source_platform,
+            author=raw.author,
+            original_tags=raw.original_tags,
+        )
+
+        # 落库
+        filepath = get_engine().save(
+            knowledge=knowledge,
+            source_url=f"file://{file.filename}",
+            source_platform=raw.source_platform,
+            author=raw.author,
+        )
+
+        # 索引
+        chunk_count = get_indexer().index_file(filepath)
+        get_searcher().rebuild_bm25()
+
+        # Wiki 编译入队
+        try:
+            from wiki.compile_queue import enqueue_compile
+            await enqueue_compile(filepath)
+        except Exception:
+            pass
+
+        return IngestResponse(
+            success=True,
+            file_path=str(filepath),
+            title=knowledge.title,
+            tags=knowledge.tags,
+            message=f"{file_type.upper()} 入库成功，{len(raw.content)} 字，Wiki 编译已排队",
+        )
+    finally:
+        # 删除临时文件节省磁盘
+        try:
+            tmp_path.unlink()
+        except Exception:
+            pass
+
+
 @app.post("/search", response_model=SearchResponse)
 async def search(req: SearchRequest):
     """检索接口 - 语义搜索 + RAG 答案生成"""
@@ -210,12 +283,18 @@ async def stats():
     """系统状态"""
     indexer_stats = get_indexer().get_stats()
     file_count = len(list(DATA_DIR.glob("*.md")))
-    # Wiki 统计
     from config import WIKI_DIR
     wiki_count = sum(1 for _ in WIKI_DIR.glob("**/*.md") if not _.name.startswith("_"))
+    # 编译队列状态
+    try:
+        from wiki.compile_queue import get_queue
+        queue_size = get_queue().qsize()
+    except Exception:
+        queue_size = 0
     return {
         "knowledge_files": file_count,
         "wiki_pages": wiki_count,
+        "compile_queue": queue_size,
         **indexer_stats,
     }
 
@@ -226,7 +305,7 @@ async def root():
     index_path = BASE_DIR / "web" / "index.html"
     if index_path.exists():
         return FileResponse(index_path)
-    return {"name": "Local RAG", "version": "0.3.0", "hint": "Web UI not found, visit /docs"}
+    return {"name": "Local RAG", "version": "0.4.0", "hint": "Web UI not found, visit /docs"}
 
 
 # ===== Wiki API =====

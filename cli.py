@@ -1,14 +1,15 @@
 """命令行入口
 
 提供终端下的快速入库和检索能力：
-  python cli.py ingest <url>     - 入库
-  python cli.py search <query>   - 检索
-  python cli.py reindex          - 重建索引
-  python cli.py list             - 列出所有知识文件
-  python cli.py stats            - 系统状态
-  python cli.py wiki-compile     - 全量 Wiki 编译（存量迁移）
-  python cli.py wiki-inspect     - Wiki 健康检查
-  python cli.py wiki-list        - 列出所有 Wiki 页面
+  python cli.py ingest <url>           - URL 入库
+  python cli.py ingest-file <文件路径>  - 文件入库 (PDF/图片/音频)
+  python cli.py search <query>         - 检索
+  python cli.py reindex                - 重建索引
+  python cli.py list                   - 列出所有知识文件
+  python cli.py stats                  - 系统状态
+  python cli.py wiki-compile           - 全量 Wiki 编译
+  python cli.py wiki-inspect           - Wiki 健康检查
+  python cli.py wiki-list              - 列出所有 Wiki 页面
 """
 
 import asyncio
@@ -89,6 +90,73 @@ async def cmd_ingest(url: str):
     print(f"   索引切片数: {chunk_count}")
 
     print(f"\n✅ 入库完成!")
+
+
+async def cmd_ingest_file(file_path: str):
+    """文件入库命令 (PDF/图片/音频)"""
+    from pathlib import Path
+    from ingestion.dispatcher import Dispatcher
+    from transform.llm_cleaner import LLMCleaner
+    from storage.markdown_engine import MarkdownEngine
+    from retrieval.indexer import VectorIndexer
+
+    filepath = Path(file_path)
+    if not filepath.exists():
+        print(f"❌ 文件不存在: {file_path}")
+        return
+
+    dispatcher = Dispatcher()
+    file_type = dispatcher.detect_type(str(filepath))
+    print(f"📄 文件: {filepath.name} (类型: {file_type})")
+
+    if file_type == "unknown":
+        print(f"❌ 不支持的文件类型: {filepath.suffix}")
+        return
+
+    # 解析
+    print("📥 正在解析文件...")
+    try:
+        raw = await dispatcher.dispatch(str(filepath))
+    except Exception as e:
+        print(f"❌ 解析失败: {e}")
+        return
+
+    print(f"   标题: {raw.title}")
+    print(f"   内容长度: {len(raw.content)} 字符")
+
+    # LLM 清洗
+    print("🧹 正在 LLM 清洗...")
+    cleaner = LLMCleaner()
+    try:
+        knowledge = await cleaner.clean(
+            title=raw.title, content=raw.content,
+            source=raw.source_platform, author=raw.author,
+        )
+    except Exception as e:
+        print(f"❌ LLM 清洗失败: {e}")
+        return
+
+    print(f"   清洗后标题: {knowledge.title}")
+    print(f"   标签: {knowledge.tags}")
+
+    # 落库
+    print("💾 正在落库...")
+    engine = MarkdownEngine()
+    saved_path = engine.save(
+        knowledge=knowledge,
+        source_url=f"file://{filepath.name}",
+        source_platform=raw.source_platform,
+        author=raw.author,
+    )
+    print(f"   文件: {saved_path}")
+
+    # 索引
+    print("🔍 正在建立向量索引...")
+    indexer = VectorIndexer()
+    chunk_count = indexer.index_file(saved_path)
+    print(f"   索引切片数: {chunk_count}")
+
+    print(f"\n✅ 文件入库完成!")
 
 
 async def cmd_search(query: str, top_k: int = 3):
@@ -238,12 +306,12 @@ def main():
             return
         asyncio.run(cmd_ingest(sys.argv[2]))
 
-    elif command == "ingest-text":
+    elif command == "ingest-file":
         if len(sys.argv) < 3:
-            print("用法: python cli.py ingest-text <文本文件路径>")
-            print("  文件第一行作为标题，其余作为正文")
+            print("用法: python cli.py ingest-file <文件路径>")
+            print("  支持: PDF (.pdf) / 图片 (.jpg .png .webp) / 音频 (.mp3 .m4a .wav)")
             return
-        asyncio.run(cmd_ingest_text(sys.argv[2]))
+        asyncio.run(cmd_ingest_file(sys.argv[2]))
 
     elif command == "search":
         if len(sys.argv) < 3:
