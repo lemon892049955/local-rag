@@ -159,10 +159,8 @@
                 <span class="text-[11px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full" x-text="wikiPages.length+' Wiki 页面 · '+stats.knowledge_files+' 篇原始文章'"></span>
             </div>
             <div class="flex items-center gap-3 text-[11px] text-gray-400">
-                <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-brand-500 inline-block"></span> 主题</span>
-                <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span> 实体</span>
-                <span class="flex items-center gap-1"><span class="w-5 border-t border-dashed border-brand-300 inline-block"></span> 引用</span>
-                <span class="flex items-center gap-1"><span class="w-5 border-t-2 border-dashed border-emerald-400 inline-block"></span> 共源</span>
+                <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-brand-500 inline-block"></span> 标签</span>
+                <span class="flex items-center gap-1"><span class="w-5 border-t-2 border-dashed border-brand-300 inline-block"></span> 共现关联</span>
                 <button @click="showPanel=!showPanel" class="ml-1 px-2 py-0.5 rounded bg-gray-100 hover:bg-gray-200 text-gray-500 text-[11px] transition">
                     <span x-text="showPanel?'⟩':'⟨'"></span>
                 </button>
@@ -176,15 +174,11 @@
                 <div x-show="wikiHoveredNode" x-cloak class="absolute bg-white/95 dark:bg-surface-800/95 backdrop-blur-sm rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 p-4 max-w-xs z-10 pointer-events-none"
                      :style="`left:${wikiTooltipX}px;top:${wikiTooltipY}px`">
                     <div class="flex items-center gap-2 mb-1">
-                        <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" :class="wikiHoveredNode?.type==='topic'?'bg-brand-500':wikiHoveredNode?.type==='entitie'?'bg-emerald-500':'bg-amber-500'"></span>
-                        <div class="font-semibold text-sm text-gray-800" x-text="wikiHoveredNode?.title"></div>
+                        <span class="text-brand-600 font-bold text-sm">#</span>
+                        <div class="font-semibold text-sm text-gray-800" x-text="wikiHoveredNode?.label"></div>
                     </div>
-                    <div class="text-xs text-gray-500 leading-relaxed line-clamp-3" x-text="wikiHoveredNode?.summary"></div>
-                    <div class="flex gap-2 mt-2 text-[10px] text-gray-400">
-                        <span x-text="(wikiHoveredNode?.sources_count||0)+' 个来源'"></span>
-                        <span x-text="'更新于 '+(wikiHoveredNode?.updated_at||'')"></span>
-                    </div>
-                    <div class="text-[10px] text-gray-400 mt-1 italic">点击查看详情</div>
+                    <div class="text-xs text-gray-500" x-text="(wikiHoveredNode?.count||0)+' 篇相关文章'"></div>
+                    <div class="text-[10px] text-gray-400 mt-1 italic">点击查看文章列表</div>
                 </div>
             </div>
             <!-- 右侧面板 (合并) -->
@@ -228,15 +222,23 @@
                         </template>
                     </div>
                 </div>
-                <!-- 标签云 -->
-                <div class="p-3 border-b border-gray-50">
+                <!-- 选中标签的文章列表 -->
+                <div x-show="selectedTagNode" x-cloak class="p-3 border-b border-gray-50 fade-in">
                     <div class="flex items-center justify-between mb-2">
-                        <span class="text-[10px] font-semibold text-gray-400 uppercase tracking-widest">标签云</span>
-                        <button @click="tagExpanded=!tagExpanded" class="text-[10px] text-brand-500 hover:text-brand-700" x-text="tagExpanded?'收起':'展开'"></button>
+                        <span class="text-xs font-semibold text-brand-600" x-text="'# '+(selectedTagNode?.label||'')"></span>
+                        <button @click="selectedTagNode=null" class="text-gray-400 hover:text-gray-600 text-[10px]">关闭</button>
                     </div>
-                    <div class="flex flex-wrap gap-1.5" :class="!tagExpanded&&'max-h-24 overflow-hidden'">
-                        <template x-for="tag in tagStats" :key="tag.name">
-                            <span class="tag-cloud-item" :style="tagStyle(tag)" @click="searchByTag(tag.name)" x-text="tag.name" style="font-size:11px!important;padding:3px 10px!important"></span>
+                    <div class="text-[10px] text-gray-400 mb-2" x-text="(selectedTagNode?.articles||[]).length+' 篇相关文章'"></div>
+                    <div class="space-y-1.5 max-h-60 overflow-y-auto">
+                        <template x-for="art in (selectedTagNode?.articles||[])" :key="art.file_path">
+                            <div @click="openDetailByPath(art.file_path)" class="flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer hover:bg-brand-50 transition group">
+                                <span class="platform-icon text-[8px]" :class="platformBg(art.platform)" x-text="platformEmoji(art.platform)"></span>
+                                <div class="flex-1 min-w-0">
+                                    <div class="text-[11px] font-medium text-gray-700 group-hover:text-brand-600 truncate" x-text="art.title"></div>
+                                    <div class="text-[9px] text-gray-400 truncate" x-text="art.summary"></div>
+                                </div>
+                                <svg class="w-3 h-3 text-gray-300 group-hover:text-brand-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                            </div>
                         </template>
                     </div>
                 </div>
@@ -762,7 +764,7 @@ function app(){
         quickSearch:'',simulation:null,
         wikiPages:[],wikiDetailData:null,wikiDetailLoading:false,
         wikiInspect:null,wikiLogContent:'',wikiGraphData:null,
-        wikiHoveredNode:null,wikiTooltipX:0,wikiTooltipY:0,wikiShowList:true,
+        wikiHoveredNode:null,wikiTooltipX:0,wikiTooltipY:0,wikiShowList:true,selectedTagNode:null,
 
         async init(){
             await Promise.all([this.loadStats(),this.loadCategories(),this.loadKnowledge(),this.loadTags(),this.loadTimeline(),this.loadWikiPages(),this.loadWikiGraph()]);
@@ -797,81 +799,71 @@ function app(){
             svg.append('rect').attr('width',W).attr('height',H).attr('fill','url(#wgrid)');
 
             // 渐变
-            const gTopic=defs.append('radialGradient').attr('id','wgrad-topic');
-            gTopic.append('stop').attr('offset','0%').attr('stop-color','#818cf8');
-            gTopic.append('stop').attr('offset','100%').attr('stop-color','#4f46e5');
-            const gEntity=defs.append('radialGradient').attr('id','wgrad-entity');
-            gEntity.append('stop').attr('offset','0%').attr('stop-color','#34d399');
-            gEntity.append('stop').attr('offset','100%').attr('stop-color','#059669');
-            const gInsight=defs.append('radialGradient').attr('id','wgrad-insight');
-            gInsight.append('stop').attr('offset','0%').attr('stop-color','#fbbf24');
-            gInsight.append('stop').attr('offset','100%').attr('stop-color','#d97706');
+            const grad=defs.append('radialGradient').attr('id','wgrad-tag');
+            grad.append('stop').attr('offset','0%').attr('stop-color','#a5b4fc');
+            grad.append('stop').attr('offset','100%').attr('stop-color','#6366f1');
 
             const g=svg.append('g');
             svg.call(d3.zoom().scaleExtent([0.2,5]).on('zoom',e=>g.attr('transform',e.transform)));
 
-            const nodeMap={};nodes.forEach(n=>nodeMap[n.id]=n);
-            const links=edges.filter(e=>nodeMap[e.source]&&nodeMap[e.target]).map(e=>({...e}));
+            const links=edges.map(e=>({...e}));
+            const maxCount=Math.max(...nodes.map(n=>n.count),1);
 
             const sim=d3.forceSimulation(nodes)
-                .force('link',d3.forceLink(links).id(d=>d.id).distance(d=>d.type==='reference'?80:120).strength(d=>d.type==='shared_source'?0.8:0.4))
-                .force('charge',d3.forceManyBody().strength(-300))
+                .force('link',d3.forceLink(links).id(d=>d.id).distance(100).strength(d=>Math.min(d.weight*0.3,0.8)))
+                .force('charge',d3.forceManyBody().strength(-250))
                 .force('center',d3.forceCenter(W/2,H/2))
-                .force('collision',d3.forceCollide().radius(55))
-                .force('x',d3.forceX(W/2).strength(0.06))
-                .force('y',d3.forceY(H/2).strength(0.06));
+                .force('collision',d3.forceCollide().radius(d=>14+d.count*4+10))
+                .force('x',d3.forceX(W/2).strength(0.05))
+                .force('y',d3.forceY(H/2).strength(0.05));
 
             const link=g.append('g').selectAll('line').data(links).join('line')
-                .attr('stroke',d=>d.type==='shared_source'?'#34d399':'#a5b4fc')
-                .attr('stroke-width',d=>d.type==='shared_source'?Math.max(1.5,(d.weight||1)*2):1.2)
-                .attr('stroke-dasharray',d=>d.type==='shared_source'?'6,4':'3,3')
-                .attr('stroke-opacity',d=>d.type==='shared_source'?0.5:0.35);
+                .attr('stroke','#a5b4fc')
+                .attr('stroke-width',d=>Math.max(1,d.weight*1.5))
+                .attr('stroke-dasharray','5,4')
+                .attr('stroke-opacity',0.4);
 
             const node=g.append('g').selectAll('g').data(nodes).join('g').attr('class','graph-node')
                 .call(d3.drag().on('start',(e,d)=>{if(!e.active)sim.alphaTarget(0.3).restart();d.fx=d.x;d.fy=d.y}).on('drag',(e,d)=>{d.fx=e.x;d.fy=e.y}).on('end',(e,d)=>{if(!e.active)sim.alphaTarget(0);d.fx=null;d.fy=null}));
 
             const self=this;
+            // 调色板
+            const palettes=['#6366f1','#8b5cf6','#3b82f6','#0891b2','#059669','#d946ef','#e11d48','#ea580c','#4f46e5','#7c3aed','#2563eb','#0d9488'];
+            function tagColor(name){const idx=Math.abs(name.split('').reduce((a,c)=>a+c.charCodeAt(0),0))%palettes.length;return palettes[idx]}
+
             node.each(function(d){
                 const el=d3.select(this);
-                const colors=d.type==='topic'?['#818cf8','#4f46e5','#eef2ff']:d.type==='entitie'?['#34d399','#059669','#ecfdf5']:['#fbbf24','#d97706','#fffbeb'];
-                const label=d.label.length>12?d.label.slice(0,12)+'…':d.label;
-                const w=Math.max(label.length*11+24,80),h=36,rx=10;
+                const r=14+Math.min(d.count,8)*3;
+                const color=tagColor(d.label);
 
-                // 卡片背景
-                el.append('rect').attr('x',-w/2).attr('y',-h/2).attr('width',w).attr('height',h).attr('rx',rx)
-                    .attr('fill',self.dark?'#1e293b':colors[2]).attr('stroke',colors[0]).attr('stroke-width',2)
-                    .style('filter','drop-shadow(0 2px 8px rgba(0,0,0,0.12))');
-
-                // 左侧类型色块
-                el.append('rect').attr('x',-w/2).attr('y',-h/2).attr('width',4).attr('height',h)
-                    .attr('rx',2).attr('fill',colors[1]);
-
-                // 类型小图标
-                const icon=d.type==='topic'?'#':d.type==='entitie'?'@':'*';
-                el.append('text').text(icon).attr('x',-w/2+12).attr('y',4)
-                    .attr('font-size','13px').attr('font-weight','700').attr('fill',colors[1]);
-
-                // 标题文字
-                el.append('text').text(label).attr('x',-w/2+24).attr('y',4)
-                    .attr('font-size','11px').attr('fill',self.dark?'#e2e8f0':'#1e293b').attr('font-weight','500');
-
-                // 来源数角标
-                if(d.sources_count>1){
-                    el.append('circle').attr('r',8).attr('cx',w/2-2).attr('cy',-h/2+2).attr('fill','#ef4444').attr('stroke','#fff').attr('stroke-width',1.5);
-                    el.append('text').text(d.sources_count).attr('x',w/2-2).attr('y',-h/2+5).attr('text-anchor','middle').attr('font-size','9px').attr('fill','#fff').attr('font-weight','700');
-                }
+                // 外圈光晕
+                el.append('circle').attr('r',r+4).attr('fill',color).attr('opacity',0.15);
+                // 主圆
+                el.append('circle').attr('r',r).attr('fill',color).attr('stroke','#fff').attr('stroke-width',2.5)
+                    .style('filter','drop-shadow(0 2px 6px rgba(0,0,0,0.15))');
+                // # 号
+                el.append('text').text('#').attr('text-anchor','middle').attr('dy','1px')
+                    .attr('font-size',r>20?'14px':'11px').attr('font-weight','700').attr('fill','rgba(255,255,255,0.6)');
+                // 文章数
+                el.append('text').text(d.count).attr('text-anchor','middle').attr('dy',r>20?'14px':'12px')
+                    .attr('font-size','9px').attr('fill','rgba(255,255,255,0.8)').attr('font-weight','600');
+                // 标签名
+                const label=d.label.length>8?d.label.slice(0,8)+'…':d.label;
+                el.append('text').text(label).attr('dy',r+14).attr('text-anchor','middle')
+                    .attr('font-size','11px').attr('fill',self.dark?'#94a3b8':'#475569').attr('font-weight','600');
             });
 
             node.on('mouseover',(e,d)=>{
                 self.wikiHoveredNode=d;const r=container.getBoundingClientRect();self.wikiTooltipX=e.clientX-r.left+15;self.wikiTooltipY=e.clientY-r.top-10;
                 const conn=new Set();links.forEach(l=>{const s=l.source.id||l.source,t=l.target.id||l.target;if(s===d.id)conn.add(t);if(t===d.id)conn.add(s)});conn.add(d.id);
                 node.transition().duration(150).style('opacity',n=>conn.has(n.id)?1:0.15);
-                link.transition().duration(150).style('opacity',l=>{const s=l.source.id||l.source,t=l.target.id||l.target;return conn.has(s)&&conn.has(t)?1:0.03});
+                link.transition().duration(150).style('opacity',l=>{const s=l.source.id||l.source,t=l.target.id||l.target;return conn.has(s)&&conn.has(t)?0.8:0.05});
             }).on('mouseout',()=>{
                 self.wikiHoveredNode=null;node.transition().duration(150).style('opacity',1);
-                link.transition().duration(150).style('opacity',d=>d.type==='shared_source'?0.5:0.35);
+                link.transition().duration(150).style('opacity',0.4);
             }).on('click',(e,d)=>{
-                const wp=self.wikiPages.find(p=>p.path===d.id);if(wp)self.openWikiDetail(wp);
+                self.selectedTagNode=d;
+                self.showPanel=true;
             });
 
             sim.on('tick',()=>{

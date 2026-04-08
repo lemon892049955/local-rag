@@ -358,54 +358,56 @@ async def list_wiki_pages():
 
 @app.get("/api/wiki/graph")
 async def get_wiki_graph():
-    """Wiki 知识图谱 — 节点=Wiki页面，边=[[交叉引用]]关系"""
-    import re
-    from wiki.page_store import list_wiki_pages, read_page
+    """知识图谱 — 标签聚合视角
 
-    pages = list_wiki_pages()
+    节点 = 标签（知识主题）
+    边 = 两个标签共现于同一篇文章（共现越多线越粗）
+    点击标签 → 展示该标签下的文章列表
+    """
+    files = get_engine().list_all()
+
+    # 1. 建立标签→文章映射
+    tag_articles = {}  # tag -> [{title, file_path, summary, platform}]
+    for item in files:
+        for tag in (item.get("tags") or []):
+            tag_articles.setdefault(tag, []).append({
+                "title": item.get("title", ""),
+                "file_path": item.get("file_path", ""),
+                "summary": item.get("summary", ""),
+                "platform": item.get("source_platform", ""),
+                "author": item.get("author", ""),
+            })
+
+    # 2. 构建节点（只保留有文章的标签）
     nodes = []
-    edges = []
-    title_to_path = {}
-
-    for p in pages:
-        path = p.get("path", "")
-        title = p.get("title", "")
-        title_to_path[title] = path
+    for tag, articles in tag_articles.items():
         nodes.append({
-            "id": path,
-            "label": title[:20],
-            "title": title,
-            "type": p.get("type", "topic"),
-            "summary": p.get("summary", ""),
-            "sources_count": len(p.get("sources", [])),
-            "updated_at": p.get("updated_at", ""),
+            "id": tag,
+            "label": tag,
+            "count": len(articles),
+            "articles": articles,
         })
 
-    # 扫描交叉引用 [[]]
-    for p in pages:
-        path = p.get("path", "")
-        page_data = read_page(path)
-        if not page_data:
-            continue
-        refs = re.findall(r"\[\[(.+?)\]\]", page_data.get("full_content", ""))
-        for ref in refs:
-            target_path = title_to_path.get(ref, "")
-            if target_path and target_path != path:
-                edges.append({"source": path, "target": target_path, "type": "reference"})
+    # 3. 构建边（两个标签共现于同一篇文章）
+    edges = []
+    tags = list(tag_articles.keys())
+    # 建立文章→标签集合的反向映射
+    article_tags = {}
+    for item in files:
+        fp = item.get("file_path", "")
+        article_tags[fp] = set(item.get("tags") or [])
 
-    # 共享来源关联
-    path_sources = {}
-    for p in pages:
-        path_sources[p.get("path", "")] = set(p.get("sources", []))
-    paths = list(path_sources.keys())
-    for i in range(len(paths)):
-        for j in range(i + 1, len(paths)):
-            shared = path_sources[paths[i]] & path_sources[paths[j]]
-            if shared:
-                edges.append({
-                    "source": paths[i], "target": paths[j],
-                    "type": "shared_source", "weight": len(shared),
-                })
+    # 计算标签对的共现次数
+    from collections import Counter
+    pair_count = Counter()
+    for fp, tag_set in article_tags.items():
+        tag_list = sorted(tag_set)
+        for i in range(len(tag_list)):
+            for j in range(i + 1, len(tag_list)):
+                pair_count[(tag_list[i], tag_list[j])] += 1
+
+    for (t1, t2), weight in pair_count.items():
+        edges.append({"source": t1, "target": t2, "weight": weight})
 
     return {"nodes": nodes, "edges": edges}
 
