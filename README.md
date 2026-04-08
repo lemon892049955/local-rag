@@ -3,7 +3,7 @@
 > 本地化优先、大模型驱动的个人知识资产管理与 RAG 问答系统。
 > 把散落在公众号、小红书、知乎等平台的碎片信息，一键转化为结构化、持续生长的专属知识网络。
 
-**v0.5.0** | 2026-04-08
+**v0.6.3** | 2026-04-08
 
 ---
 
@@ -11,17 +11,20 @@
 
 | 能力 | 说明 | 版本 |
 |------|------|------|
-| **微信转发即入库** | 企业微信应用，转发链接/图片/语音自动入库 | v0.2+ |
-| **跨平台抓取** | 公众号、小红书、知乎、通用网页自动解析 | v0.1+ |
+| **微信转发即入库** | 企业微信应用，转发链接/图片/语音/文件自动入库 | v0.2+ |
+| **跨平台抓取** | 公众号、小红书(MCP)、知乎、GitHub、通用网页自动解析 | v0.1+ |
 | **多模态转文字** | PDF 解析 + 图片 OCR + 音频转录，统一转为 Markdown | v0.4+ |
+| **图文穿插 OCR** | 图片内容原位替换，保持图文混排语义连贯 | **v0.6** |
+| **长文分段清洗** | 万字长文分段 LLM 清洗+合并，零知识丢失 | **v0.6** |
 | **LLM 智能清洗** | 自动降噪、提炼标题/摘要/标签/干货正文 | v0.1+ |
 | **Wiki 编译引擎** | LLM 持续将文章编译为知识网络（主题页+实体页+交叉引用） | v0.3+ |
 | **并行多路检索** | Wiki(宏观结构) + Data(微观细节) 双路召回 + RRF 融合 + 查询改写 | v0.3+ |
 | **知识图谱** | D3 力导向图展示 Wiki 网络关系，融合页面列表+标签云+时间轴 | v0.3+ |
 | **Web 仪表盘** | 知识图谱、分类浏览、入库（URL+文件上传）、搜索一站式界面 | v0.2+ |
-| **AI 智能助手** | 右下角悬浮窗，多轮对话 + 意图识别 + 对话中入库 + 流式回复 | **v0.5** |
-| **主动推送系统** | 每周摘要 / 知识回顾 / 关联推荐 / 编译通知，企微+Web 双渠道 | **v0.5** |
-| **企微对话升级** | 从单轮搜索升级为多轮对话式交互 + 推送订阅 | **v0.5** |
+| **AI 智能助手** | 右下角悬浮窗，多轮对话 + 意图识别 + 对话中入库 + 流式回复 | v0.5+ |
+| **主动推送系统** | 每周摘要 / 知识回顾 / 关联推荐 / 编译通知，企微+Web 双渠道 | v0.5+ |
+| **小红书 MCP** | 通过 MCP 协议完整抓取小红书笔记（文字+图片+标签），绕过反爬 | **v0.6** |
+| **BM25 持久化** | pickle 序列化，重启毫秒级加载 | **v0.6** |
 
 ---
 
@@ -31,15 +34,17 @@
 输入源                路由分发            专用解析器           标准化池          编译引擎
 ┌──────────────┐    ┌────────────┐    ┌──────────────┐    ┌────────────┐    ┌──────────────┐
 │ 网页链接      │─┐  │            │──→ │ SCRAPER      │─┐  │            │    │              │
-│ 小红书图文    │─┤  │            │──→ │ VISION OCR   │─┤  │  Markdown  │    │  Wiki 编译    │
+│ 小红书(MCP)  │─┤  │            │──→ │ VISION OCR   │─┤  │  Markdown  │    │  Wiki 编译    │
 │ PDF 报告     │─┼→ │ DISPATCHER │──→ │ PDF PARSER   │─┼→ │  SSOT 落库  │──→ │  (Append-only │
 │ 播客音频     │─┤  │            │──→ │ WHISPER      │─┤  │            │    │   非破坏性)    │
 │ 图片截图     │─┘  │            │──→ │ (Kimi Vision)│─┘  │            │    │              │
 └──────────────┘    └────────────┘    └──────────────┘    └────────────┘    └──────────────┘
-                                                                                    │
-智能助手层 (v0.5)                                                                   │
-┌──────────────────────────────────────────────────────────────────────────────────┘
-│
+                                            ↕                    ↕
+                                      图文穿插 OCR        长文分段清洗
+                                      (占位符原地替换)    (滑动窗口+合并)
+
+智能助手层 (v0.5+)
+┌──────────────────────────────────────────────────────────────────────────────────
 │   用户输入 → 意图识别 (search/ingest/wiki/stats/chat)
 │       ├── search → 查询改写 → Wiki+Data 并行召回 → LLM 综合答案
 │       ├── ingest → URL 提取 → 自动入库流程
@@ -76,6 +81,7 @@ vectordb/ 🔍 向量索引 (可随时从 data/ + wiki/ 重建)
 - 转发链接 → 自动抓取 → LLM 清洗 → 入库 → Wiki 编译 → 推送结果
 - 发送图片 → 自动 OCR → 入库
 - 发送语音 → 自动转录 → 入库
+- 发送文件 → PDF 解析 / 自动分发 → 入库
 - 发送文字 → AI 助手多轮对话（自动搜索知识库）
 - 发送"订阅推送" → 开启每周摘要/知识回顾等定时推送
 
@@ -135,32 +141,34 @@ curl -X POST http://localhost:8900/api/assistant/push/weekly
 
 ```
 local-rag/
-├── main.py                        # FastAPI 主入口 (v0.5.0)
-├── config.py                      # 全局配置 (LLM Provider + 路径 + 企微)
+├── main.py                        # FastAPI 主入口 (v0.6.3)
+├── config.py                      # 全局配置 (LLM Provider + 路径 + 企微 + MCP)
 ├── cli.py                         # 命令行入口
+├── eval_rag.py                    # RAG 评测对比工具
 ├── requirements.txt               # Python 依赖
 ├── Dockerfile                     # Docker 容器化
+├── docker-compose.yml             # 编排 (Local RAG + 小红书 MCP)
 ├── .env.example                   # 环境变量模板
 │
-├── assistant/                     # 🤖 智能助手 (v0.5 新增)
+├── assistant/                     # 🤖 智能助手 (v0.5)
 │   ├── intent.py                 #   意图识别 (search/ingest/wiki/stats/chat)
 │   ├── chat_engine.py            #   多轮对话引擎 (会话管理 + SSE 流式)
 │   ├── router.py                 #   API 路由 (/api/assistant/*)
 │   └── scheduler.py              #   定时任务调度 + 主动推送系统
 │
 ├── ingestion/                     # 📥 数据摄入层 (多模态)
-│   ├── base.py                    #   抓取器基类 + RawContent 数据模型
+│   ├── base.py                    #   抓取器基类 + RawContent (含 images 字段)
 │   ├── dispatcher.py              #   统一路由分发 (URL/PDF/图片/音频)
-│   ├── router.py                  #   URL 路由 (公众号/小红书/知乎/通用)
-│   ├── wechat.py                  #   微信公众号抓取器
-│   ├── xiaohongshu.py             #   小红书抓取器
-│   ├── general.py                 #   通用网页 + 知乎抓取器
+│   ├── router.py                  #   URL 路由 (自动读取 MCP 配置)
+│   ├── wechat.py                  #   微信公众号 (占位符图文穿插)
+│   ├── xiaohongshu.py             #   小红书 (MCP 完整抓取 + HTTP 降级)
+│   ├── general.py                 #   通用网页 + 知乎 (图片提取 + 异常日志)
 │   ├── pdf_parser.py              #   PDF 解析器 (pymupdf, 扫描件降级 OCR)
 │   ├── vision_ocr.py              #   图片 OCR (Kimi Vision API)
 │   └── audio_transcriber.py       #   音频转录 (Whisper API)
 │
 ├── transform/                     # 🧹 AI 清洗层
-│   └── llm_cleaner.py             #   LLM 脱水 (可插拔 Provider)
+│   └── llm_cleaner.py             #   LLM 脱水 (短文单次/长文分段清洗)
 │
 ├── storage/                       # 💾 落库引擎
 │   └── markdown_engine.py         #   Markdown + YAML 存储 (SSOT)
@@ -168,7 +176,7 @@ local-rag/
 ├── retrieval/                     # 🔍 检索层
 │   ├── chunker.py                 #   语义切片器
 │   ├── indexer.py                 #   ChromaDB 向量索引
-│   ├── bm25.py                    #   BM25 关键词索引 (纯 Python)
+│   ├── bm25.py                    #   BM25 关键词索引 (pickle 持久化)
 │   ├── hybrid_searcher.py         #   并行多路召回 (Wiki+Data) + RAG
 │   └── searcher.py                #   基础 RAG (CLI 用)
 │
@@ -178,27 +186,101 @@ local-rag/
 │   ├── page_store.py              #   Wiki 页面读写 (Append-only)
 │   ├── index_builder.py           #   索引/日志自动生成 (零 LLM)
 │   ├── inspector.py               #   健康检查 (孤立/缺失/过时)
-│   ├── _schema.md                 #   编译规则模式文件
-│   ├── _index.md                  #   全局索引 (Python 自动生成)
-│   ├── _log.md                    #   操作日志 (Python 代码追加)
-│   ├── topics/                    #   主题页
-│   ├── entities/                  #   实体页
-│   └── insights/                  #   洞察页
+│   └── _schema.md                 #   编译规则模式文件
 │
 ├── wecom/                         # 💬 企业微信
 │   ├── crypto.py                  #   消息加解密 (AES + 签名)
 │   ├── sender.py                  #   主动推送 (文本 + 卡片)
-│   └── callback.py                #   回调 (文本/链接/图片/语音 + AI 对话)
+│   └── callback.py                #   回调 (文本/链接/图片/语音/文件 + AI 对话)
 │
 ├── utils/
 │   └── url_utils.py               #   URL 归一化、平台识别、去重
 │
 ├── web/
-│   └── index.html                 #   SPA (Tailwind + Alpine.js + D3.js + AI 助手悬浮窗)
+│   └── index.html                 #   SPA (Tailwind + Alpine.js + D3.js + AI 助手)
 │
 ├── data/                          #   原始知识文件 (Markdown, git 忽略)
 └── vectordb/                      #   ChromaDB 持久化 (git 忽略)
 ```
+
+---
+
+## 部署
+
+### 方式一：Docker Compose（推荐）
+
+```bash
+# 1. 克隆项目
+git clone <repo> && cd local-rag
+
+# 2. 配置环境变量
+cp .env.example .env
+# 编辑 .env 填入 API Key 等
+
+# 3. 启动（Local RAG + 小红书 MCP）
+docker compose up -d
+
+# 4. 首次小红书登录（扫码）
+docker compose exec xhs-mcp /app/xiaohongshu-login
+# 用小红书 App 扫码，之后 Cookie 持久化
+
+# 5. 验证
+curl http://localhost:8900/stats
+```
+
+### 方式二：直接运行
+
+```bash
+# 1. 安装依赖
+pip install -r requirements.txt
+
+# 2. 配置 .env
+cp .env.example .env
+
+# 3. (可选) 启动小红书 MCP
+# 下载二进制: https://github.com/xpzouying/xiaohongshu-mcp/releases
+./xiaohongshu-login    # 首次扫码
+./xiaohongshu-mcp &    # 后台运行
+# .env 中设置: XHS_MCP_ENDPOINT=http://localhost:18060/mcp
+
+# 4. 启动服务
+uvicorn main:app --host 0.0.0.0 --port 8900
+```
+
+### 小红书 MCP 服务部署
+
+小红书 MCP 服务提供完整的笔记数据抓取能力（文字+图片+标签+互动数据），绕过平台反爬。
+
+| 项目 | 说明 |
+|------|------|
+| 服务端点 | `http://localhost:18060/mcp` |
+| 协议 | MCP (JSON-RPC over HTTP + Session) |
+| 登录方式 | 首次小红书 App 扫码，Cookie 持久化 |
+| 降级策略 | MCP 不可用时自动降级为 HTTP 模式 |
+
+**服务器部署步骤**：
+
+```bash
+# 1. 下载对应架构的预编译二进制
+# darwin-arm64 / linux-amd64 / linux-arm64
+wget https://github.com/xpzouying/xiaohongshu-mcp/releases/latest/download/xiaohongshu-mcp-linux-amd64.tar.gz
+tar xzf xiaohongshu-mcp-linux-amd64.tar.gz
+
+# 2. 首次登录（需要图形化环境或 VNC）
+./xiaohongshu-login
+# 扫码后 cookies.json 持久化
+
+# 3. 后台启动 MCP 服务
+nohup ./xiaohongshu-mcp > /var/log/xhs-mcp.log 2>&1 &
+
+# 4. 设置环境变量
+echo "XHS_MCP_ENDPOINT=http://localhost:18060/mcp" >> .env
+
+# 5. 重启 Local RAG
+docker compose restart local-rag
+```
+
+> **注意**：Cookie 有效期约 30 天，过期后需重新扫码登录。
 
 ---
 
@@ -212,11 +294,11 @@ local-rag/
 | POST | `/reindex` | 重建向量索引 |
 | GET | `/stats` | 系统状态 (含 Wiki 页面数 + 编译队列) |
 | GET | `/` | Web UI |
-| **POST** | **`/api/assistant/chat`** | **AI 助手流式对话 (SSE)** |
-| **POST** | **`/api/assistant/chat-sync`** | **AI 助手非流式对话** |
-| **DELETE** | **`/api/assistant/sessions/{id}`** | **清空对话会话** |
-| **GET** | **`/api/assistant/notifications`** | **获取推送通知** |
-| **POST** | **`/api/assistant/push/{type}`** | **手动触发推送** |
+| POST | `/api/assistant/chat` | AI 助手流式对话 (SSE) |
+| POST | `/api/assistant/chat-sync` | AI 助手非流式对话 |
+| DELETE | `/api/assistant/sessions/{id}` | 清空对话会话 |
+| GET | `/api/assistant/notifications` | 获取推送通知 |
+| POST | `/api/assistant/push/{type}` | 手动触发推送 |
 | GET | `/api/knowledge` | 知识列表 |
 | GET | `/api/knowledge/{filename}` | 知识详情 |
 | DELETE | `/api/knowledge/{filename}` | 删除知识 |
@@ -230,82 +312,6 @@ local-rag/
 | POST | `/api/wiki/compile-all` | 全量 Wiki 编译 |
 | POST | `/api/wiki/inspect` | Wiki 健康检查 |
 | GET/POST | `/wecom/callback` | 企微回调 |
-
----
-
-## v0.5 智能助手详解
-
-### AI 悬浮窗助手
-
-Web 页面右下角的悬浮窗，提供沉浸式交互体验：
-
-| 功能 | 说明 |
-|------|------|
-| **多轮对话** | 基于会话 ID 维持上下文，支持连续追问 |
-| **意图识别** | 自动识别搜索/入库/Wiki/状态/闲聊 5 种意图 |
-| **流式回复** | SSE 逐字输出，实时体验 |
-| **对话中入库** | 粘贴链接自动识别 → 触发入库 → 回报结果 |
-| **快捷操作** | 预置快捷问题，一键触发 |
-| **Ctrl+K** | 全局快捷键开关悬浮窗 |
-
-### 意图识别规则
-
-```
-用户输入 → detect_intent()
-  ├── 含 URL → ingest (自动入库)
-  ├── "入库""收藏""保存" → ingest
-  ├── "wiki""编译""图谱" → wiki
-  ├── "状态""统计""多少" → stats
-  ├── 疑问词/问号 → search (知识库搜索)
-  └── 其他 → search (短文本) / chat (长文本)
-```
-
-### 主动推送系统
-
-| 推送类型 | 频率 | 内容 |
-|----------|------|------|
-| 每周摘要 | 周一 9:00 | 本周新增文章统计 + 热门标签 + 文章列表 |
-| 知识回顾 | 周三/五 12:00 | 随机推荐一篇旧文重温 |
-| 关联推荐 | 周六 10:00 | 基于 Wiki 交叉引用发现知识关联 |
-| 月度健康 | 每月 1 号 9:00 | Wiki 健康检查报告（孤立/缺失/过时） |
-
-**推送渠道**：
-- Web 悬浮窗通知（实时拉取）
-- 企业微信推送（发"订阅推送"开启，发"取消推送"关闭）
-
----
-
-## 技术选型
-
-| 组件 | 选型 | 说明 |
-|------|------|------|
-| Web 框架 | FastAPI 0.115 | 异步高性能，自带 OpenAPI 文档 |
-| 向量数据库 | ChromaDB 0.5 | 本地持久化，Cosine 距离 |
-| Embedding | all-MiniLM-L6-v2 | SentenceTransformers，本地运行 |
-| LLM 接口 | OpenAI SDK | 兼容 Kimi / DeepSeek / Ollama |
-| PDF 解析 | PyMuPDF | 15MB，纯 CPU，文本提取+页面渲染 |
-| 图片 OCR | Kimi Vision API | 零新依赖，~¥0.01/张 |
-| 音频转录 | OpenAI Whisper API | 零新依赖，~¥2.5/小时 |
-| 关键词检索 | BM25 (自实现) | 纯 Python，中英文 bigram |
-| 数据格式 | Markdown + YAML | SSOT，兼容 Obsidian/Logseq |
-| 前端 | HTML + Tailwind + Alpine.js + D3 | 零构建 SPA |
-| 企微接入 | 自建应用 + 回调 | AES 加解密，支持文本/链接/图片/语音 |
-| 流式输出 | SSE (Server-Sent Events) | 零 WebSocket 依赖 |
-| 定时调度 | asyncio 后台任务 | 零额外框架，随应用启动 |
-| 容器化 | Docker (Python 3.11-slim) | 腾讯云轻量服务器部署 |
-
----
-
-## 部署信息
-
-| 项目 | 值 |
-|------|-----|
-| 云服务器 | 腾讯云轻量应用服务器 (上海) |
-| 公网 IP | `124.222.99.141` |
-| 服务端口 | `8900` |
-| 访问地址 | `http://124.222.99.141:8900` |
-| LLM Provider | Kimi (moonshot-v1-8k) |
-| 当前数据 | 13 篇原始文章 + 13 个 Wiki 页面 |
 
 ---
 
@@ -328,6 +334,9 @@ HF_ENDPOINT=https://hf-mirror.com          # 国内加速
 HOST=0.0.0.0
 PORT=8900
 
+# ===== 小红书 MCP =====
+XHS_MCP_ENDPOINT=http://localhost:18060/mcp  # 可选，不配则降级 HTTP
+
 # ===== 企业微信 =====
 WECOM_CORP_ID=wwxxxxxxxxx
 WECOM_SECRET=xxxxxxxx
@@ -338,31 +347,25 @@ WECOM_ENCODING_AES_KEY=xxxxxxxx
 
 ---
 
-## Wiki 编译系统
+## 技术选型
 
-### 工作原理
-
-每次入库新文章后，编译引擎自动：
-1. 分析文章关键概念 → 读取现有 Wiki 摘要
-2. LLM 制定编译计划（创建/更新哪些页面）
-3. Append-only 执行（只追加不改写，防知识磨损）
-4. Python 自动更新索引和日志（零 LLM 参与）
-5. 增量向量索引
-
-### 安全机制
-
-| 机制 | 说明 |
-|------|------|
-| 单线程编译队列 | asyncio.Queue，防并发冲突 |
-| Append-only 更新 | LLM 不允许改写已有内容，只能追加 |
-| 代码生成索引/日志 | `_index.md` 和 `_log.md` 由 Python 生成，100% 准确 |
-| 编译去重 | 同一文章不会重复编译 |
-
-### 健康检查
-
-`POST /api/wiki/inspect` 或 `python cli.py wiki-inspect`
-
-检查项：孤立页面、缺失引用、过时页面、来源统计。
+| 组件 | 选型 | 说明 |
+|------|------|------|
+| Web 框架 | FastAPI 0.115 | 异步高性能，自带 OpenAPI 文档 |
+| 向量数据库 | ChromaDB 0.5 | 本地持久化，Cosine 距离 |
+| Embedding | all-MiniLM-L6-v2 | SentenceTransformers，本地运行 |
+| LLM 接口 | OpenAI SDK | 兼容 Kimi / DeepSeek / Ollama |
+| PDF 解析 | PyMuPDF | 15MB，纯 CPU，文本提取+页面渲染 |
+| 图片 OCR | Kimi Vision API | 零新依赖，~¥0.01/张 |
+| 音频转录 | OpenAI Whisper API | 零新依赖，~¥2.5/小时 |
+| 关键词检索 | BM25 (自实现) | 纯 Python，中英文 bigram，pickle 持久化 |
+| 数据格式 | Markdown + YAML | SSOT，兼容 Obsidian/Logseq |
+| 前端 | HTML + Tailwind + Alpine.js + D3 | 零构建 SPA |
+| 企微接入 | 自建应用 + 回调 | AES 加解密，支持文本/链接/图片/语音/文件 |
+| 流式输出 | SSE (Server-Sent Events) | 零 WebSocket 依赖 |
+| 定时调度 | asyncio 后台任务 | 零额外框架，随应用启动 |
+| 小红书抓取 | xiaohongshu-mcp | MCP 协议完整抓取，HTTP 降级 |
+| 容器化 | Docker Compose | Local RAG + 小红书 MCP 编排 |
 
 ---
 
@@ -389,7 +392,10 @@ WECOM_ENCODING_AES_KEY=xxxxxxxx
 | v0.3.1 | 2026-04-08 | 稳定加固 (Prompt 调优 + 编译去重 + 队列状态 + 代码清理) |
 | v0.4 | 2026-04-08 | 多模态转文字 (PDF + 图片 OCR + 音频转录 + 文件上传) |
 | v0.5 | 2026-04-08 | 智能助手 (AI 悬浮窗 + 意图识别 + 多轮对话 + 主动推送 + 企微对话升级) |
-| **v0.6** | **2026-04-08** | **入库场景优化 (图片OCR串联 + Bug修复 + 企微消息扩展)** ← 当前 |
+| v0.6 | 2026-04-08 | 入库场景优化 (图片 OCR 串联 + Bug 修复 + 企微消息扩展) |
+| v0.6.1 | 2026-04-08 | 图文穿插 OCR (占位符原地替换，解决语义脱节) |
+| v0.6.2 | 2026-04-08 | 长文分段清洗 + BM25 持久化 + Wiki 截断优化 |
+| **v0.6.3** | **2026-04-08** | **小红书 MCP 集成 (完整数据抓取 + Session 管理)** ← 当前 |
 
 ---
 
@@ -403,13 +409,16 @@ WECOM_ENCODING_AES_KEY=xxxxxxxx
 - [x] **v0.5** — 智能助手
 - [x] **v0.6** — 入库场景优化 ← 当前版本
   - [x] 图片内容提取（小红书/微信/知乎图片 OCR 串联）
+  - [x] 图文穿插 OCR（占位符原地替换，保持语义连贯）
+  - [x] 长文分段清洗（滑动窗口清洗+合并，万字长文零丢失）
+  - [x] BM25 持久化（pickle 序列化，重启毫秒级加载）
   - [x] Bug 修复（企微语音 file:// 链路、后缀硬编码、短文误判）
   - [x] 企微消息扩展（file/video/event 类型）
-  - [x] 入库管线图片 OCR 环节（抓取后、清洗前自动 OCR）
+  - [x] 小红书 MCP 集成（完整数据抓取绕过反爬）
+  - [x] RAG 评测工具（eval_rag.py，AB 对比）
 - [ ] **v0.7** — RAG 策略优化
   - 切片 overlap（150 字滑动窗口）
   - jieba 分词替换 bigram
-  - LLM 长文截断优化（首尾保留）
   - Summary Chunk 扩充
   - 视频转录（yt-dlp + ffmpeg + Whisper）
 - [ ] **v1.0** — 成熟版

@@ -27,7 +27,7 @@ from utils.url_utils import normalize_url, check_duplicate
 app = FastAPI(
     title="Local RAG - 个人碎片知识落库系统",
     description="本地化优先的个人知识资产管理与 RAG 问答系统（v0.5 智能助手）",
-    version="0.5.0",
+    version="0.6.3",
 )
 
 # 注册企业微信回调路由
@@ -343,7 +343,7 @@ async def root():
     index_path = BASE_DIR / "web" / "index.html"
     if index_path.exists():
         return FileResponse(index_path)
-    return {"name": "Local RAG", "version": "0.5.0", "hint": "Web UI not found, visit /docs"}
+    return {"name": "Local RAG", "version": "0.6.3", "hint": "Web UI not found, visit /docs"}
 
 
 # ===== Wiki API =====
