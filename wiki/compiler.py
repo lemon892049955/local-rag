@@ -212,7 +212,7 @@ class WikiCompiler:
             title=title,
             tags=", ".join(tags) if tags else "无",
             summary=summary,
-            content=body[:6000],  # 截断防超 token
+            content=body[:8000],  # 输入已是 cleaned_content，8000 字足够
         )
 
         if not plan:
@@ -237,7 +237,7 @@ class WikiCompiler:
                     page_type=page_type,
                     page_title=page_title,
                     filename=filename,
-                    article_content=body[:6000],
+                    article_content=body[:8000],
                     today=today,
                 )
                 if page_content:
@@ -262,8 +262,8 @@ class WikiCompiler:
                 insight = await self._generate_insight(
                     page_title=page_title,
                     filename=filename,
-                    article_content=body[:4000],
-                    page_content=existing["body"][:3000],
+                    article_content=body[:6000],
+                    page_content=existing["body"][:4000],
                 )
                 if insight and insight.strip():
                     page_store.append_insight(page_path, today, filename, insight)

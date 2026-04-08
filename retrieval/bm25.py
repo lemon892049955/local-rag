@@ -2,15 +2,21 @@
 
 轻量级 BM25 实现，用于关键词搜索路，与向量搜索互补。
 不依赖外部库，纯 Python 实现。
+
+v0.6.2: pickle 持久化 — 增量更新后自动 dump，重启秒加载。
 """
 
 import math
+import pickle
+import logging
 import re
 from collections import Counter
 from pathlib import Path
 from typing import List, Dict
 
 import yaml
+
+logger = logging.getLogger(__name__)
 
 
 def tokenize(text: str) -> List[str]:
@@ -39,7 +45,7 @@ def tokenize(text: str) -> List[str]:
 
 
 class BM25Index:
-    """BM25 关键词索引"""
+    """BM25 关键词索引 — 支持 pickle 持久化"""
 
     def __init__(self, k1: float = 1.5, b: float = 0.75):
         self.k1 = k1
@@ -50,6 +56,7 @@ class BM25Index:
         self.avg_dl = 0         # 平均文档长度
         self.doc_lens = []      # 每个文档的 token 数
         self.n_docs = 0
+        self._cache_path = None  # pickle 缓存路径
 
     def build_from_chunks(self, chunks: List[Dict]):
         """从切片列表构建索引
@@ -79,6 +86,9 @@ class BM25Index:
         self.idf = {}
         for word, freq in df.items():
             self.idf[word] = math.log((self.n_docs - freq + 0.5) / (freq + 0.5) + 1)
+
+        # 持久化
+        self._save_cache()
 
     def search(self, query: str, top_k: int = 5) -> List[Dict]:
         """BM25 检索
@@ -120,10 +130,18 @@ class BM25Index:
 
         return results
 
-    def build_from_directory(self, data_dir: Path):
-        """从 Markdown 文件目录构建索引"""
+    def build_from_directory(self, data_dir: Path, cache_name: str = "data_bm25"):
+        """从 Markdown 文件目录构建索引（优先从缓存加载）"""
         from retrieval.chunker import SemanticChunker
 
+        cache_path = data_dir / f".{cache_name}.pkl"
+        self._cache_path = cache_path
+
+        # 尝试从缓存加载
+        if self._load_cache(data_dir):
+            return self.n_docs
+
+        # 缓存不存在或过期，全量重建
         chunker = SemanticChunker()
         all_chunks = []
 
@@ -143,3 +161,56 @@ class BM25Index:
 
         self.build_from_chunks(all_chunks)
         return len(all_chunks)
+
+    def _save_cache(self):
+        """将索引序列化到磁盘"""
+        if not self._cache_path:
+            return
+        try:
+            cache_data = {
+                "docs": self.docs,
+                "doc_freqs": self.doc_freqs,
+                "idf": self.idf,
+                "avg_dl": self.avg_dl,
+                "doc_lens": self.doc_lens,
+                "n_docs": self.n_docs,
+            }
+            with open(self._cache_path, "wb") as f:
+                pickle.dump(cache_data, f)
+            logger.info(f"BM25 缓存已保存: {self._cache_path} ({self.n_docs} docs)")
+        except Exception as e:
+            logger.warning(f"BM25 缓存保存失败: {e}")
+
+    def _load_cache(self, data_dir: Path) -> bool:
+        """从磁盘加载缓存（如果缓存比最新文件更新则有效）"""
+        if not self._cache_path or not self._cache_path.exists():
+            return False
+
+        try:
+            # 检查缓存是否比最新的 .md 文件更新
+            cache_mtime = self._cache_path.stat().st_mtime
+            latest_md = 0
+            for md_file in data_dir.glob("*.md"):
+                mt = md_file.stat().st_mtime
+                if mt > latest_md:
+                    latest_md = mt
+
+            if latest_md > cache_mtime:
+                logger.info("BM25 缓存已过期，将重建")
+                return False
+
+            with open(self._cache_path, "rb") as f:
+                cache_data = pickle.load(f)
+
+            self.docs = cache_data["docs"]
+            self.doc_freqs = cache_data["doc_freqs"]
+            self.idf = cache_data["idf"]
+            self.avg_dl = cache_data["avg_dl"]
+            self.doc_lens = cache_data["doc_lens"]
+            self.n_docs = cache_data["n_docs"]
+            logger.info(f"BM25 缓存已加载: {self.n_docs} docs")
+            return True
+
+        except Exception as e:
+            logger.warning(f"BM25 缓存加载失败: {e}")
+            return False

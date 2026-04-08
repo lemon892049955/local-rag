@@ -83,7 +83,7 @@ class HybridSearcher:
     def _ensure_bm25(self):
         """确保 BM25 索引已构建"""
         if not self._data_bm25_built:
-            self.data_bm25.build_from_directory(DATA_DIR)
+            self.data_bm25.build_from_directory(DATA_DIR, cache_name="data_bm25")
             self._data_bm25_built = True
         if not self._wiki_bm25_built:
             if WIKI_DIR.exists():
@@ -91,7 +91,7 @@ class HybridSearcher:
 
     def rebuild_bm25(self):
         """重建 BM25 索引（入库新文件后调用）"""
-        self.data_bm25.build_from_directory(DATA_DIR)
+        self.data_bm25.build_from_directory(DATA_DIR, cache_name="data_bm25")
         self._data_bm25_built = True
 
     def _rebuild_wiki_bm25(self):
