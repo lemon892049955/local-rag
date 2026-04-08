@@ -165,6 +165,10 @@ class XiaohongshuFetcher(BaseFetcher):
 
             content = f"{title}\n\n{desc}" if title else desc
 
+            # 图文穿插：在正文段落之间插入图片占位符
+            if image_urls and content.strip():
+                content = self._interleave_image_placeholders(content, len(image_urls))
+
             if not content.strip() and not image_urls:
                 return None
 
@@ -179,6 +183,36 @@ class XiaohongshuFetcher(BaseFetcher):
             )
         except (json.JSONDecodeError, StopIteration):
             return None
+
+    def _interleave_image_placeholders(self, content: str, image_count: int) -> str:
+        """将图片占位符均匀插入正文段落之间，模拟图文穿插。
+
+        小红书的图片和文字天然分离（desc + imageList），
+        这里按段落数均匀分配，让 LLM 清洗时能理解图文上下文。
+        """
+        paragraphs = [p.strip() for p in content.split("\n") if p.strip()]
+        if not paragraphs:
+            # 纯图片笔记
+            return "\n\n".join(f"[IMG_{i+1}]" for i in range(image_count))
+
+        # 将 N 张图片均匀分布到段落之间
+        result = []
+        img_idx = 0
+        step = max(1, len(paragraphs) / max(image_count, 1))
+
+        for i, para in enumerate(paragraphs):
+            result.append(para)
+            # 在合适的位置插入图片占位符
+            if img_idx < image_count and (i + 1) >= round(step * (img_idx + 1)):
+                img_idx += 1
+                result.append(f"[IMG_{img_idx}]")
+
+        # 剩余未插入的图片追加到末尾
+        while img_idx < image_count:
+            img_idx += 1
+            result.append(f"[IMG_{img_idx}]")
+
+        return "\n\n".join(result)
 
     def _parse_html_fallback(self, url: str, html: str) -> RawContent:
         """HTML 兜底解析"""

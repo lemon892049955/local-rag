@@ -9,6 +9,7 @@
 """
 
 from pathlib import Path
+import re
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -144,9 +145,29 @@ async def ingest(req: IngestRequest):
         try:
             from ingestion.vision_ocr import VisionOCR
             ocr = VisionOCR()
-            ocr_text = await ocr.ocr_multiple_images(raw.images[:5])
-            if ocr_text:
-                raw.content = raw.content + "\n\n---以下是图片内容---\n\n" + ocr_text
+            ocr_results = []
+            for i, img_url in enumerate(raw.images[:5]):
+                try:
+                    text = await ocr.ocr_image_url(img_url)
+                    if text:
+                        ocr_results.append((i + 1, text))
+                except Exception:
+                    pass
+
+            if ocr_results:
+                # 微信/小红书：原地替换占位符 [IMG_N]，保持图文穿插
+                has_placeholders = "[IMG_" in raw.content
+                if has_placeholders:
+                    for idx, text in ocr_results:
+                        placeholder = f"[IMG_{idx}]"
+                        replacement = f"[图片{idx}内容: {text}]"
+                        raw.content = raw.content.replace(placeholder, replacement)
+                    # 清理未被替换的占位符（OCR 失败的图片）
+                    raw.content = re.sub(r'\[IMG_\d+\]', '[图片: 无法识别]', raw.content)
+                else:
+                    # 其他平台：尾部追加
+                    ocr_text = "\n\n".join(f"[图片{idx}内容: {text}]" for idx, text in ocr_results)
+                    raw.content = raw.content + "\n\n---以下是图片内容---\n\n" + ocr_text
         except Exception:
             pass
 

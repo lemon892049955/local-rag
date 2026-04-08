@@ -205,9 +205,25 @@ async def process_file_ingest(user_id: str, file_url: str, file_type: str):
             try:
                 from ingestion.vision_ocr import VisionOCR
                 ocr = VisionOCR()
-                ocr_text = await ocr.ocr_multiple_images(raw.images[:5])
-                if ocr_text:
-                    raw.content = raw.content + "\n\n---以下是图片内容---\n\n" + ocr_text
+                ocr_results = []
+                for i, img_url in enumerate(raw.images[:5]):
+                    try:
+                        text = await ocr.ocr_image_url(img_url)
+                        if text:
+                            ocr_results.append((i + 1, text))
+                    except Exception:
+                        pass
+
+                if ocr_results:
+                    has_placeholders = "[IMG_" in raw.content
+                    if has_placeholders:
+                        import re as _re
+                        for idx, text in ocr_results:
+                            raw.content = raw.content.replace(f"[IMG_{idx}]", f"[图片{idx}内容: {text}]")
+                        raw.content = _re.sub(r'\[IMG_\d+\]', '[图片: 无法识别]', raw.content)
+                    else:
+                        ocr_text = "\n\n".join(f"[图片{idx}内容: {text}]" for idx, text in ocr_results)
+                        raw.content = raw.content + "\n\n---以下是图片内容---\n\n" + ocr_text
             except Exception:
                 pass
 
@@ -310,9 +326,25 @@ async def process_ingest(user_id: str, url: str):
             try:
                 from ingestion.vision_ocr import VisionOCR
                 ocr = VisionOCR()
-                ocr_text = await ocr.ocr_multiple_images(raw.images[:5])
-                if ocr_text:
-                    raw.content = raw.content + "\n\n---以下是图片内容---\n\n" + ocr_text
+                ocr_results = []
+                for i, img_url in enumerate(raw.images[:5]):
+                    try:
+                        text = await ocr.ocr_image_url(img_url)
+                        if text:
+                            ocr_results.append((i + 1, text))
+                    except Exception:
+                        pass
+
+                if ocr_results:
+                    has_placeholders = "[IMG_" in raw.content
+                    if has_placeholders:
+                        import re as _re
+                        for idx, text in ocr_results:
+                            raw.content = raw.content.replace(f"[IMG_{idx}]", f"[图片{idx}内容: {text}]")
+                        raw.content = _re.sub(r'\[IMG_\d+\]', '[图片: 无法识别]', raw.content)
+                    else:
+                        ocr_text = "\n\n".join(f"[图片{idx}内容: {text}]" for idx, text in ocr_results)
+                        raw.content = raw.content + "\n\n---以下是图片内容---\n\n" + ocr_text
             except Exception:
                 pass
 

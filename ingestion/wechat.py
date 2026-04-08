@@ -1,10 +1,18 @@
-"""微信公众号文章抓取器"""
+"""微信公众号文章抓取器
+
+v0.6 图文穿插策略:
+  解析 HTML 时将 <img> 替换为 [IMG_N] 占位符，保持图文相对位置。
+  后续 OCR 完成后原地替换占位符，语义上下文不会脱节。
+"""
 
 import re
+import logging
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, NavigableString, Tag
 
 from .base import BaseFetcher, RawContent, FetchError
+
+logger = logging.getLogger(__name__)
 
 
 class WechatFetcher(BaseFetcher):
@@ -46,10 +54,10 @@ class WechatFetcher(BaseFetcher):
         if not content_div:
             raise FetchError(url, "未找到文章正文区域")
 
-        # 先提取图片 URL（在清洗删除 img 之前）
-        image_urls = self._extract_images(content_div)
+        # 图文穿插提取: img → 占位符 + 收集图片URL
+        image_urls = self._replace_images_with_placeholders(content_div)
 
-        # 清洗正文
+        # 清洗正文 (此时 img 已变成占位符文本节点)
         content = self._clean_content(content_div)
 
         # 有图片时降低文本长度阈值（图片密集型文章文字可能很少）
@@ -68,12 +76,10 @@ class WechatFetcher(BaseFetcher):
 
     def _extract_title(self, soup: BeautifulSoup) -> str:
         """提取标题"""
-        # 优先从 meta 获取
         og_title = soup.find("meta", property="og:title")
         if og_title and og_title.get("content"):
             return og_title["content"].strip()
 
-        # 备选: h1 标签
         h1 = soup.find("h1", id="activity-name")
         if h1:
             return h1.get_text(strip=True)
@@ -93,10 +99,44 @@ class WechatFetcher(BaseFetcher):
 
         return ""
 
+    def _replace_images_with_placeholders(self, content_div) -> list:
+        """将 <img> 替换为 [IMG_N] 占位符，保持图文相对位置。
+
+        返回按顺序排列的图片 URL 列表（index 对应占位符编号）。
+        装饰性小图（表情/图标）直接删除，不生成占位符。
+        """
+        image_urls = []
+        img_index = 0
+
+        for img in content_div.find_all("img"):
+            src = img.get("data-src") or img.get("src") or ""
+
+            # 非 mmbiz 图片或无 src → 直接删除
+            if not src or not src.startswith("http") or "mmbiz" not in src:
+                img.decompose()
+                continue
+
+            # 过滤装饰性小图（宽度<100px 的表情/图标）
+            width = img.get("data-w") or img.get("width") or "999"
+            try:
+                if int(str(width).replace("px", "")) < 100:
+                    img.decompose()
+                    continue
+            except (ValueError, TypeError):
+                pass
+
+            # 有意义的图片 → 替换为占位符
+            img_index += 1
+            image_urls.append(src)
+            placeholder = f"\n\n[IMG_{img_index}]\n\n"
+            img.replace_with(NavigableString(placeholder))
+
+        return image_urls
+
     def _clean_content(self, content_div) -> str:
-        """清洗正文 HTML -> 纯文本"""
-        # 移除不需要的元素（img 已在 _extract_images 中提取过）
-        for tag in content_div.find_all(["script", "style", "iframe", "img"]):
+        """清洗正文 HTML -> 纯文本（保留 [IMG_N] 占位符）"""
+        # 移除不需要的元素
+        for tag in content_div.find_all(["script", "style", "iframe"]):
             tag.decompose()
 
         # 移除底部二维码区域和广告
@@ -104,28 +144,43 @@ class WechatFetcher(BaseFetcher):
             text = div.get_text(strip=True)
             if any(keyword in text for keyword in [
                 "扫描二维码", "长按识别", "点击关注", "阅读原文",
-                "点赞", "在看", "分享", "广告",
+                "点赞", "在看", "广告",
             ]):
-                # 只移除短文本的干扰 div，避免误删正文
-                if len(text) < 100:
+                # 只移除短文本的干扰 div（排除含占位符的）
+                if len(text) < 100 and "[IMG_" not in text:
                     div.decompose()
 
         # 获取纯文本，保留段落结构
         lines = []
         for element in content_div.find_all(["p", "h1", "h2", "h3", "h4", "li", "blockquote"]):
             text = element.get_text(strip=True)
-            if text:
-                # 保留标题层级
-                tag_name = element.name
-                if tag_name in ("h1", "h2", "h3", "h4"):
-                    prefix = "#" * int(tag_name[1])
-                    lines.append(f"{prefix} {text}")
-                elif tag_name == "li":
-                    lines.append(f"- {text}")
-                elif tag_name == "blockquote":
-                    lines.append(f"> {text}")
-                else:
-                    lines.append(text)
+            if not text:
+                continue
+
+            # 占位符单独成行
+            if "[IMG_" in text:
+                # 拆分出占位符和文本
+                parts = re.split(r'(\[IMG_\d+\])', text)
+                for part in parts:
+                    part = part.strip()
+                    if not part:
+                        continue
+                    if re.match(r'\[IMG_\d+\]', part):
+                        lines.append(part)
+                    else:
+                        lines.append(part)
+                continue
+
+            tag_name = element.name
+            if tag_name in ("h1", "h2", "h3", "h4"):
+                prefix = "#" * int(tag_name[1])
+                lines.append(f"{prefix} {text}")
+            elif tag_name == "li":
+                lines.append(f"- {text}")
+            elif tag_name == "blockquote":
+                lines.append(f"> {text}")
+            else:
+                lines.append(text)
 
         content = "\n\n".join(lines)
 
@@ -134,19 +189,3 @@ class WechatFetcher(BaseFetcher):
         content = re.sub(r"[ \t]+", " ", content)
 
         return content.strip()
-
-    def _extract_images(self, content_div) -> list:
-        """从正文 HTML 中提取图片 URL（微信用 data-src）"""
-        urls = []
-        for img in content_div.find_all("img"):
-            src = img.get("data-src") or img.get("src") or ""
-            if src and src.startswith("http") and "mmbiz" in src:
-                # 过滤掉装饰性小图（宽度<100px 的表情/图标）
-                width = img.get("data-w") or img.get("width") or "999"
-                try:
-                    if int(str(width).replace("px", "")) < 100:
-                        continue
-                except (ValueError, TypeError):
-                    pass
-                urls.append(src)
-        return urls
