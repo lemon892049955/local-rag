@@ -186,7 +186,8 @@ class WikiCompiler:
         """
         # Step 1: 读取文章
         content = article_path.read_text(encoding="utf-8")
-        meta, body = self._parse_frontmatter(content)
+        from utils.frontmatter import parse_frontmatter
+        meta, body = parse_frontmatter(content)
         if not body.strip():
             return {"new_pages": [], "updated_pages": [], "log_details": []}
 
@@ -411,16 +412,3 @@ class WikiCompiler:
                 logger.error(f"JSON 解析失败: {raw[:200]}")
                 return None
 
-    def _parse_frontmatter(self, content: str) -> tuple[dict, str]:
-        """解析 YAML front-matter"""
-        if not content.startswith("---"):
-            return {}, content
-        parts = content.split("---", 2)
-        if len(parts) < 3:
-            return {}, content
-        try:
-            import yaml
-            meta = yaml.safe_load(parts[1]) or {}
-        except Exception:
-            meta = {}
-        return meta, parts[2].strip()

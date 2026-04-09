@@ -7,6 +7,7 @@ v0.6 图文穿插策略:
 
 import re
 import logging
+import httpx
 import requests
 from bs4 import BeautifulSoup, NavigableString, Tag
 
@@ -32,10 +33,10 @@ class WechatFetcher(BaseFetcher):
 
     async def fetch(self, url: str) -> RawContent:
         try:
-            resp = requests.get(url, headers=self.HEADERS, timeout=15)
-            resp.raise_for_status()
-            resp.encoding = "utf-8"
-        except requests.RequestException as e:
+            async with httpx.AsyncClient(headers=self.HEADERS, follow_redirects=True, timeout=15) as client:
+                resp = await client.get(url)
+                resp.raise_for_status()
+        except httpx.HTTPError as e:
             raise FetchError(url, f"HTTP 请求失败: {e}")
 
         soup = BeautifulSoup(resp.text, "lxml")

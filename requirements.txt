@@ -4,10 +4,11 @@ uvicorn==0.34.0
 
 # HTTP & Scraping
 requests==2.32.3
+httpx==0.28.1              # 异步 HTTP 客户端（替代 requests 的 async 场景）
 beautifulsoup4==4.12.3
 readability-lxml==0.8.1
 lxml==5.3.0
-lxml_html_clean
+lxml_html_clean==0.4.1
 
 # LLM Clients
 openai==1.58.1          # Kimi/DeepSeek 都兼容 OpenAI 接口

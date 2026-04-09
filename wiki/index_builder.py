@@ -11,6 +11,7 @@ from typing import Optional
 import yaml
 
 from config import WIKI_DIR
+from utils.frontmatter import read_frontmatter as _read_frontmatter
 
 
 def rebuild_index() -> str:
@@ -115,16 +116,3 @@ def build_lightweight_summary() -> str:
 
     return "当前 Wiki 已有页面:\n" + "\n".join(lines)
 
-
-def _read_frontmatter(filepath: Path) -> Optional[dict]:
-    """读取文件的 YAML front-matter"""
-    try:
-        content = filepath.read_text(encoding="utf-8")
-        if not content.startswith("---"):
-            return None
-        parts = content.split("---", 2)
-        if len(parts) < 3:
-            return None
-        return yaml.safe_load(parts[1]) or {}
-    except Exception:
-        return None

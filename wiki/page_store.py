@@ -11,6 +11,7 @@ from typing import Optional
 import yaml
 
 from config import WIKI_DIR
+from utils.frontmatter import parse_frontmatter as _parse_frontmatter
 
 
 def read_page(page_path: str) -> Optional[dict]:
@@ -136,20 +137,6 @@ def list_wiki_pages() -> list[dict]:
                     **meta,
                 })
     return results
-
-
-def _parse_frontmatter(content: str) -> tuple[dict, str]:
-    """解析 YAML front-matter"""
-    if not content.startswith("---"):
-        return {}, content
-    parts = content.split("---", 2)
-    if len(parts) < 3:
-        return {}, content
-    try:
-        meta = yaml.safe_load(parts[1]) or {}
-    except yaml.YAMLError:
-        meta = {}
-    return meta, parts[2].strip()
 
 
 def _update_frontmatter_field(content: str, field: str, value: str) -> str:

@@ -12,7 +12,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-import yaml
+from utils.frontmatter import parse_frontmatter
 
 
 @dataclass
@@ -38,7 +38,7 @@ class SemanticChunker:
         content = filepath.read_text(encoding="utf-8")
 
         # 解析 Front-matter
-        meta, body = self._parse_frontmatter(content)
+        meta, body = parse_frontmatter(content)
         if not body.strip():
             return []
 
@@ -109,23 +109,6 @@ class SemanticChunker:
             chunks = self.chunk_file(md_file)
             all_chunks.extend(chunks)
         return all_chunks
-
-    def _parse_frontmatter(self, content: str) -> tuple[dict, str]:
-        """解析 YAML Front-matter，返回 (meta, body)"""
-        if not content.startswith("---"):
-            return {}, content
-
-        parts = content.split("---", 2)
-        if len(parts) < 3:
-            return {}, content
-
-        try:
-            meta = yaml.safe_load(parts[1]) or {}
-        except yaml.YAMLError:
-            meta = {}
-
-        body = parts[2].strip()
-        return meta, body
 
     def _split_by_headers(self, text: str) -> list[tuple[str, str]]:
         """按 # / ## / ### 标题拆分文本

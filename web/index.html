@@ -7,9 +7,10 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
-    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked@15.0.4/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.min.js"></script>
     <script>
         tailwind.config={darkMode:'class',theme:{extend:{fontFamily:{sans:['Inter','system-ui','sans-serif']},colors:{
             brand:{50:'#eef2ff',100:'#e0e7ff',200:'#c7d2fe',300:'#a5b4fc',400:'#818cf8',500:'#6366f1',600:'#4f46e5',700:'#4338ca',800:'#3730a3'},
@@ -156,8 +157,8 @@
                 <span class="text-[11px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full" x-text="wikiPages.length+' Wiki 页面 · '+stats.knowledge_files+' 篇原始文章'"></span>
             </div>
             <div class="flex items-center gap-3 text-[11px] text-gray-400">
-                <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:hsl(217,85%,75%)"></span> 少</span>
-                <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:hsl(217,90%,50%)"></span> 多</span>
+                <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:hsl(210,70%,80%)"></span> 冷</span>
+                <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:hsl(220,80%,55%)"></span><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:hsl(30,85%,50%)"></span><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:hsl(8,75%,48%)"></span> 热</span>
                 <span class="flex items-center gap-1"><span class="w-4 inline-block" style="height:0;border-top:1px dashed #94a3b8"></span> 关联</span>
                 <button @click="showPanel=!showPanel" class="ml-1 px-2 py-0.5 rounded bg-gray-100 hover:bg-gray-200 text-gray-500 text-[11px] transition">
                     <span x-text="showPanel?'⟩':'⟨'"></span>
@@ -730,7 +731,7 @@ function assistant() {
 
         renderMdAssist(md) {
             if (!md) return '';
-            try { return marked.parse(md); } catch(e) { return md; }
+            try { return DOMPurify.sanitize(marked.parse(md)); } catch(e) { return DOMPurify.sanitize(md); }
         },
 
         destroy() {
@@ -839,11 +840,17 @@ function app(){
                 const intensity=Math.min(d.count/maxCount,1);
                 const r=14+Math.min(d.count,10)*2;
 
-                // 蓝色深浅 = 文章数量多少：浅蓝(少) → 深蓝(多)
-                const lightness=isDark?Math.round(25+intensity*30):Math.round(95-intensity*45);
-                const sat=isDark?Math.round(70+intensity*30):Math.round(80+intensity*20);
-                const fillColor=`hsl(217,${sat}%,${lightness}%)`;
-                const borderColor=isDark?`hsl(217,${sat}%,${Math.min(lightness+15,70)}%)`:`hsl(217,${sat}%,${Math.max(lightness-12,35)}%)`;
+                // 热度渐变：浅蓝 → 蓝 → 靛蓝 → 橙 → 红
+                function heatColor(t){
+                    // t: 0~1, 0=冷 1=热
+                    if(t<0.25) return isDark?`hsl(210,60%,${30+t*80}%)`:`hsl(210,70%,${88-t*80}%)`;
+                    if(t<0.5)  return isDark?`hsl(220,75%,${45+(t-0.25)*60}%)`:`hsl(220,80%,${68-(t-0.25)*60}%)`;
+                    if(t<0.75) return isDark?`hsl(30,80%,${40+(t-0.5)*40}%)`:`hsl(30,85%,${58-(t-0.5)*30}%)`;
+                    return isDark?`hsl(8,80%,${45+(t-0.75)*20}%)`:`hsl(8,75%,${52-(t-0.75)*15}%)`;
+                }
+                const fillColor=heatColor(intensity);
+                const borderT=Math.min(intensity+0.1,1);
+                const borderColor=heatColor(borderT);
 
                 el.append('circle').attr('r',r)
                     .attr('fill',fillColor)
@@ -853,7 +860,7 @@ function app(){
                 // 圆形中间显示数量
                 el.append('text').text(d.count).attr('text-anchor','middle').attr('dy','4px')
                     .attr('font-size',r>20?'13px':'11px').attr('font-weight','600')
-                    .attr('fill',intensity>0.35?'#ffffff':(isDark?'#e2e8f0':'#1e3a5f'))
+                    .attr('fill',intensity>0.3?'#ffffff':(isDark?'#e2e8f0':'#1e3a5f'))
                     .style('font-family','Georgia,serif')
                     .style('pointer-events','none');
 
@@ -946,7 +953,7 @@ function app(){
             if(m<1)return'刚刚';if(m<60)return m+'分钟前';if(h<24)return h+'小时前';if(d<7)return d+'天前';
             return dt.slice(5,10);
         },
-        renderMd(md){if(!md)return'';try{return marked.parse(md)}catch(e){return md}},
+        renderMd(md){if(!md)return'';try{return DOMPurify.sanitize(marked.parse(md))}catch(e){return DOMPurify.sanitize(md)}},
     }
 }
 </script>

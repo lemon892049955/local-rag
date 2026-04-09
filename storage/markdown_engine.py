@@ -124,13 +124,5 @@ class MarkdownEngine:
 
     def _read_frontmatter(self, filepath: Path):
         """读取文件的 YAML Front-matter"""
-        try:
-            content = filepath.read_text(encoding="utf-8")
-            if not content.startswith("---"):
-                return None
-            parts = content.split("---", 2)
-            if len(parts) < 3:
-                return None
-            return yaml.safe_load(parts[1])
-        except Exception:
-            return None
+        from utils.frontmatter import read_frontmatter
+        return read_frontmatter(filepath)

@@ -9,6 +9,7 @@
 """
 
 from pathlib import Path
+import logging
 import re
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.staticfiles import StaticFiles
@@ -23,6 +24,24 @@ from storage.markdown_engine import MarkdownEngine
 from retrieval.indexer import VectorIndexer
 from retrieval.hybrid_searcher import HybridSearcher
 from utils.url_utils import normalize_url, check_duplicate
+
+
+def _safe_filename(filename: str) -> str:
+    """校验文件名安全性，防止路径穿越"""
+    if not filename or "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="非法文件名")
+    if not filename.endswith(".md"):
+        raise HTTPException(status_code=400, detail="仅支持 .md 文件")
+    return filename
+
+
+def _safe_wiki_path(subdir: str, filename: str) -> str:
+    """校验 Wiki 路径安全性"""
+    if subdir not in ("topics", "entities", "insights"):
+        raise HTTPException(status_code=400, detail="非法目录")
+    if not filename or "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="非法文件名")
+    return f"{subdir}/{filename}"
 
 app = FastAPI(
     title="Local RAG - 个人碎片知识落库系统",
@@ -118,118 +137,33 @@ class SearchResponse(BaseModel):
 @app.post("/ingest", response_model=IngestResponse)
 async def ingest(req: IngestRequest):
     """入库接口 - URL -> 抓取 -> 清洗 -> 落库 -> 索引"""
-
     url = req.url.strip()
     if not url:
         raise HTTPException(status_code=400, detail="URL 不能为空")
 
-    # 1. 去重检查
-    existing = check_duplicate(url, DATA_DIR)
-    if existing:
-        return IngestResponse(
-            success=True,
-            file_path=existing,
-            title="(已存在)",
-            tags=[],
-            message=f"该 URL 已入库: {existing}",
-        )
+    from services.ingest_pipeline import ingest_url
+    result = await ingest_url(url)
 
-    # 2. 抓取
-    try:
-        raw = await get_router().fetch(url)
-    except Exception as e:
-        raise HTTPException(status_code=422, detail=f"抓取失败: {e}")
-
-    # 2.5 图片 OCR（如果抓取器提取了图片列表）
-    if raw.images:
-        try:
-            from ingestion.vision_ocr import VisionOCR
-            ocr = VisionOCR()
-            ocr_results = []
-            for i, img_url in enumerate(raw.images[:5]):
-                try:
-                    text = await ocr.ocr_image_url(img_url)
-                    if text:
-                        ocr_results.append((i + 1, text))
-                except Exception:
-                    pass
-
-            if ocr_results:
-                # 微信/小红书：原地替换占位符 [IMG_N]，保持图文穿插
-                has_placeholders = "[IMG_" in raw.content
-                if has_placeholders:
-                    for idx, text in ocr_results:
-                        placeholder = f"[IMG_{idx}]"
-                        replacement = f"[图片{idx}内容: {text}]"
-                        raw.content = raw.content.replace(placeholder, replacement)
-                    # 清理未被替换的占位符（OCR 失败的图片）
-                    raw.content = re.sub(r'\[IMG_\d+\]', '[图片: 无法识别]', raw.content)
-                else:
-                    # 其他平台：尾部追加
-                    ocr_text = "\n\n".join(f"[图片{idx}内容: {text}]" for idx, text in ocr_results)
-                    raw.content = raw.content + "\n\n---以下是图片内容---\n\n" + ocr_text
-        except Exception:
-            pass
-
-    # 3. LLM 清洗
-    try:
-        knowledge = await get_cleaner().clean(
-            title=raw.title,
-            content=raw.content,
-            source=raw.source_platform,
-            author=raw.author,
-            original_tags=raw.original_tags,
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"LLM 清洗失败: {e}")
-
-    # 4. Markdown 落库
-    try:
-        filepath = get_engine().save(
-            knowledge=knowledge,
-            source_url=url,
-            source_platform=raw.source_platform,
-            author=raw.author,
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"文件保存失败: {e}")
-
-    # 5. 向量索引 + BM25 索引
-    try:
-        chunk_count = get_indexer().index_file(filepath)
-        get_searcher().rebuild_bm25()
-    except Exception as e:
-        chunk_count = 0
-
-    # 6. Wiki 编译入队（异步，不阻塞响应）
-    try:
-        from wiki.compile_queue import enqueue_compile
-        await enqueue_compile(filepath)
-    except Exception:
-        pass
+    if not result.get("success") and not result.get("duplicate"):
+        raise HTTPException(status_code=422, detail=result.get("error", "入库失败"))
 
     return IngestResponse(
         success=True,
-        file_path=str(filepath),
-        title=knowledge.title,
-        tags=knowledge.tags,
-        message=f"入库成功，生成 {chunk_count} 个索引切片，Wiki 编译已排队",
+        file_path=result.get("file_path", ""),
+        title=result.get("title", ""),
+        tags=result.get("tags", []),
+        message=result.get("message", ""),
     )
 
 
 @app.post("/ingest/upload", response_model=IngestResponse)
 async def ingest_upload(file: UploadFile = File(...)):
-    """文件上传入库 — 支持 PDF/图片/音频
-
-    multipart/form-data 上传文件，自动识别类型并解析。
-    """
-    from fastapi import UploadFile
+    """文件上传入库 — 支持 PDF/图片/音频"""
     import tempfile
 
     if file is None:
         raise HTTPException(status_code=400, detail="请上传文件")
 
-    # 保存到临时文件
     suffix = Path(file.filename).suffix.lower() if file.filename else ""
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         content = await file.read()
@@ -244,46 +178,22 @@ async def ingest_upload(file: UploadFile = File(...)):
         if file_type == "unknown":
             raise HTTPException(status_code=400, detail=f"不支持的文件类型: {suffix}")
 
-        # 解析文件 → RawContent
         raw = await dispatcher.dispatch(str(tmp_path))
 
-        # LLM 清洗
-        knowledge = await get_cleaner().clean(
-            title=raw.title,
-            content=raw.content,
-            source=raw.source_platform,
-            author=raw.author,
-            original_tags=raw.original_tags,
-        )
+        from services.ingest_pipeline import ingest_raw
+        result = await ingest_raw(raw, source_url=f"file://{file.filename}")
 
-        # 落库
-        filepath = get_engine().save(
-            knowledge=knowledge,
-            source_url=f"file://{file.filename}",
-            source_platform=raw.source_platform,
-            author=raw.author,
-        )
-
-        # 索引
-        chunk_count = get_indexer().index_file(filepath)
-        get_searcher().rebuild_bm25()
-
-        # Wiki 编译入队
-        try:
-            from wiki.compile_queue import enqueue_compile
-            await enqueue_compile(filepath)
-        except Exception:
-            pass
+        if not result.get("success"):
+            raise HTTPException(status_code=500, detail=result.get("error", "入库失败"))
 
         return IngestResponse(
             success=True,
-            file_path=str(filepath),
-            title=knowledge.title,
-            tags=knowledge.tags,
-            message=f"{file_type.upper()} 入库成功，{len(raw.content)} 字，Wiki 编译已排队",
+            file_path=result.get("file_path", ""),
+            title=result.get("title", ""),
+            tags=result.get("tags", []),
+            message=f"{file_type.upper()} {result.get('message', '')}",
         )
     finally:
-        # 删除临时文件节省磁盘
         try:
             tmp_path.unlink()
         except Exception:
@@ -426,7 +336,7 @@ async def get_wiki_log():
 async def get_wiki_page(subdir: str, filename: str):
     """Wiki 页面详情"""
     from wiki.page_store import read_page
-    page_path = f"{subdir}/{filename}"
+    page_path = _safe_wiki_path(subdir, filename)
     page = read_page(page_path)
     if not page:
         raise HTTPException(status_code=404, detail="Wiki 页面不存在")
@@ -481,6 +391,7 @@ async def list_knowledge():
 @app.get("/api/knowledge/{filename}")
 async def get_knowledge(filename: str):
     """知识详情 - 返回某篇文件的元数据 + 正文"""
+    filename = _safe_filename(filename)
     filepath = DATA_DIR / filename
     if not filepath.exists() or not filepath.suffix == ".md":
         raise HTTPException(status_code=404, detail="文件不存在")
@@ -507,6 +418,7 @@ async def get_knowledge(filename: str):
 @app.put("/api/knowledge/{filename}")
 async def update_knowledge(filename: str, req: dict):
     """编辑知识文件 — 支持修改正文内容"""
+    filename = _safe_filename(filename)
     filepath = DATA_DIR / filename
     if not filepath.exists() or not filepath.suffix == ".md":
         raise HTTPException(status_code=404, detail="文件不存在")
@@ -537,8 +449,8 @@ async def update_knowledge(filename: str, req: dict):
     # 重建该文件的向量索引
     try:
         get_indexer().index_file(filepath)
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning(f"索引重建失败: {e}")
 
     return {"success": True, "message": "已保存", "filename": filename}
 
@@ -546,6 +458,7 @@ async def update_knowledge(filename: str, req: dict):
 @app.delete("/api/knowledge/{filename}")
 async def delete_knowledge(filename: str):
     """删除知识文件"""
+    filename = _safe_filename(filename)
     filepath = DATA_DIR / filename
     if not filepath.exists():
         raise HTTPException(status_code=404, detail="文件不存在")
@@ -553,8 +466,8 @@ async def delete_knowledge(filename: str):
     # 重建索引
     try:
         get_indexer().reindex_all()
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning(f"索引重建失败: {e}")
     return {"success": True, "message": f"已删除: {filename}"}
 
 

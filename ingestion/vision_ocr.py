@@ -69,9 +69,8 @@ class VisionOCR(BaseFetcher):
 
     async def ocr_image_url(self, url: str) -> str:
         """OCR 网络图片 URL — 带 Referer 绕过防盗链"""
-        import requests
+        import httpx
 
-        # 根据 URL 设置 Referer（微信/小红书防盗链）
         headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"}
         if "mmbiz" in url:
             headers["Referer"] = "https://mp.weixin.qq.com/"
@@ -81,8 +80,9 @@ class VisionOCR(BaseFetcher):
             headers["Referer"] = "https://www.zhihu.com/"
 
         try:
-            resp = requests.get(url, headers=headers, timeout=20)
-            resp.raise_for_status()
+            async with httpx.AsyncClient(timeout=20) as client:
+                resp = await client.get(url, headers=headers)
+                resp.raise_for_status()
 
             # 检查是否真的拿到了图片（防盗链可能返回 HTML 或 1x1 像素）
             content_type = resp.headers.get("Content-Type", "")
