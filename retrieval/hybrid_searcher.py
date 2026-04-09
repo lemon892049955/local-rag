@@ -213,10 +213,16 @@ class HybridSearcher:
                 ],
                 temperature=0.3,
                 max_tokens=2000,
+                timeout=45,
             )
             answer = response.choices[0].message.content.strip()
         except Exception as e:
-            answer = f"LLM 调用失败: {e}\n\n检索到的内容:\n{data_context[:1000]}"
+            logger.error(f"RAG LLM 调用失败: {type(e).__name__}: {e}")
+            # 降级：直接拼接检索内容作为答案
+            fallback_parts = []
+            for hit in (wiki_merged + data_merged)[:3]:
+                fallback_parts.append(f"**{hit.get('title', '未知')}**\n{hit['text'][:300]}")
+            answer = "LLM 暂时不可用，以下是检索到的相关内容：\n\n" + "\n\n---\n\n".join(fallback_parts) if fallback_parts else f"搜索失败: {e}"
 
         # 6. 整理来源（去重）
         all_hits = wiki_merged + data_merged
@@ -286,6 +292,7 @@ class HybridSearcher:
                 ],
                 temperature=0.3,
                 max_tokens=200,
+                timeout=15,
             )
             text = response.choices[0].message.content.strip()
             queries = [q.strip() for q in text.split("\n") if q.strip()]
