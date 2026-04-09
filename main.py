@@ -322,6 +322,74 @@ async def get_wiki_graph():
     return {"nodes": nodes, "edges": edges}
 
 
+@app.get("/api/wiki/tree")
+async def get_wiki_tree():
+    """Wiki 目录树 — 按标签自动聚类
+
+    遍历 Wiki 页面的 sources 字段，找到对应文章的标签，
+    用出现频次最高的标签作为该 Wiki 页面的分类文件夹。
+    """
+    from wiki.page_store import list_wiki_pages as _list
+    from collections import Counter
+
+    pages = _list()
+    files = get_engine().list_all()
+
+    # 建立 filename → tags 的映射
+    file_tags = {}
+    for item in files:
+        fp = item.get("file_path", "")
+        fn = fp.split("/")[-1] if fp else ""
+        file_tags[fn] = item.get("tags", [])
+
+    # 为每个 Wiki 页面计算最佳归属文件夹
+    folders = {}  # folder_name -> [page, ...]
+    uncategorized = []
+
+    for page in pages:
+        sources = page.get("sources", [])
+        # 统计该页面所有来源文章的标签频次
+        tag_counter = Counter()
+        for src in sources:
+            for tag in file_tags.get(src, []):
+                tag_counter[tag] += 1
+
+        # 也考虑页面标题本身包含的关键词
+        page_title = page.get("title", "")
+
+        if tag_counter:
+            # 取频次最高的标签作为分类
+            best_tag = tag_counter.most_common(1)[0][0]
+            folders.setdefault(best_tag, []).append(page)
+        else:
+            uncategorized.append(page)
+
+    # 按文件夹内页面数排序（多的排前面）
+    sorted_folders = sorted(folders.items(), key=lambda x: -len(x[1]))
+
+    # 合并过小的文件夹（只有1个页面的合并到"其他"）
+    result = []
+    other_pages = list(uncategorized)
+    for folder_name, folder_pages in sorted_folders:
+        if len(folder_pages) >= 1:
+            result.append({
+                "name": folder_name,
+                "count": len(folder_pages),
+                "pages": folder_pages,
+            })
+        else:
+            other_pages.extend(folder_pages)
+
+    if other_pages:
+        result.append({
+            "name": "其他",
+            "count": len(other_pages),
+            "pages": other_pages,
+        })
+
+    return {"folders": result, "total_pages": len(pages)}
+
+
 @app.get("/api/wiki/log")
 async def get_wiki_log():
     """获取 Wiki 操作日志"""

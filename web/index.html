@@ -7,6 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/collapse@3.14.8/dist/cdn.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked@15.0.4/marked.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
@@ -124,13 +125,26 @@
         </div>
         <div x-show="!sidebarCollapsed">
             <div class="px-3 mb-1 text-[10px] font-semibold text-gray-400 uppercase tracking-widest">Wiki 页面</div>
-            <template x-for="wp in wikiPages" :key="wp.path">
-                <div @click="openWikiDetail(wp)" class="sidebar-item rounded-lg px-3 py-1.5 text-xs flex items-center justify-between cursor-pointer">
-                    <span class="flex items-center gap-2 truncate">
-                        <span class="w-2 h-2 rounded-full flex-shrink-0" :class="wp.type==='topic'?'bg-brand-400':wp.type==='entitie'?'bg-emerald-400':'bg-amber-400'"></span>
-                        <span x-text="wp.title" class="truncate"></span>
-                    </span>
-                    <span class="text-[9px] text-gray-300 flex-shrink-0" x-text="(wp.sources||[]).length"></span>
+            <template x-for="(folder, fi) in wikiTree" :key="folder.name">
+                <div class="mb-0.5">
+                    <div @click="folder.open=!folder.open" class="flex items-center gap-1.5 px-3 py-1.5 cursor-pointer hover:bg-gray-50 rounded-lg">
+                        <svg class="w-3 h-3 text-gray-400 transition-transform flex-shrink-0" :class="folder.open&&'rotate-90'" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                        <svg x-show="!folder.open" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+                        <svg x-show="folder.open" class="w-3.5 h-3.5 text-brand-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z"/></svg>
+                        <span class="text-[11px] font-medium text-gray-600 truncate" x-text="folder.name"></span>
+                        <span class="text-[9px] text-gray-300 ml-auto flex-shrink-0" x-text="folder.count"></span>
+                    </div>
+                    <div x-show="folder.open" x-collapse class="ml-3 border-l border-gray-100 pl-1">
+                        <template x-for="wp in folder.pages" :key="wp.path">
+                            <div @click="openWikiDetail(wp)" class="sidebar-item rounded-lg px-2 py-1 text-[11px] flex items-center justify-between cursor-pointer ml-1">
+                                <span class="flex items-center gap-1.5 truncate">
+                                    <svg class="w-3 h-3 text-gray-300 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                                    <span x-text="wp.title" class="truncate"></span>
+                                </span>
+                                <span class="text-[9px] text-gray-300 flex-shrink-0" x-text="(wp.sources||[]).length"></span>
+                            </div>
+                        </template>
+                    </div>
                 </div>
             </template>
         </div>
@@ -763,14 +777,14 @@ function app(){
         uploadLoading:false,uploadStatus:'',
         searchQuery:'',searchLoading:false,searchResult:null,
         quickSearch:'',simulation:null,
-        wikiPages:[],wikiDetailData:null,wikiDetailLoading:false,
+        wikiPages:[],wikiTree:[],wikiDetailData:null,wikiDetailLoading:false,
         wikiInspect:null,wikiLogContent:'',wikiGraphData:null,
         wikiHoveredNode:null,wikiTooltipX:0,wikiTooltipY:0,wikiShowList:true,selectedTagNode:null,
 
         async init(){
-            await Promise.all([this.loadStats(),this.loadCategories(),this.loadKnowledge(),this.loadTags(),this.loadTimeline(),this.loadWikiPages(),this.loadWikiGraph()]);
+            await Promise.all([this.loadStats(),this.loadCategories(),this.loadKnowledge(),this.loadTags(),this.loadTimeline(),this.loadWikiPages(),this.loadWikiTree(),this.loadWikiGraph()]);
         },
-        setPage(p){this.prevPage=this.page;this.page=p;if(p==='graph'){this.loadWikiPages();this.loadWikiGraph()}},
+        setPage(p){this.prevPage=this.page;this.page=p;if(p==='graph'){this.loadWikiPages();this.loadWikiTree();this.loadWikiGraph()}},
         async loadStats(){try{this.stats=await(await fetch('/stats')).json()}catch(e){}},
         async loadCategories(){try{const d=await(await fetch('/api/categories')).json();this.categories=d.categories||[]}catch(e){}},
         async loadKnowledge(){try{const d=await(await fetch('/api/knowledge')).json();this.knowledgeList=d.items||[];this.filteredList=this.knowledgeList}catch(e){}},
@@ -779,6 +793,7 @@ function app(){
 
         // Wiki 方法
         async loadWikiPages(){try{const d=await(await fetch('/api/wiki/pages')).json();this.wikiPages=d.pages||[]}catch(e){}},
+        async loadWikiTree(){try{const d=await(await fetch('/api/wiki/tree')).json();this.wikiTree=(d.folders||[]).map(f=>({...f,open:false}));if(this.wikiTree.length)this.wikiTree[0].open=true}catch(e){}},
         async openWikiDetail(wp){this.prevPage=this.page;this.page='wikiDetail';this.wikiDetailLoading=true;this.wikiDetailData=null;try{this.wikiDetailData=await(await fetch('/api/wiki/page/'+encodeURIComponent(wp.path.split('/')[0])+'/'+encodeURIComponent(wp.path.split('/')[1]))).json()}catch(e){}this.wikiDetailLoading=false},
         async runWikiInspect(){try{this.wikiInspect=await(await fetch('/api/wiki/inspect',{method:'POST'})).json()}catch(e){}},
         async loadWikiLog(){try{const d=await(await fetch('/api/wiki/log')).json();this.wikiLogContent=d.content||''}catch(e){}},
