@@ -156,8 +156,8 @@
                 <span class="text-[11px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full" x-text="wikiPages.length+' Wiki 页面 · '+stats.knowledge_files+' 篇原始文章'"></span>
             </div>
             <div class="flex items-center gap-3 text-[11px] text-gray-400">
-                <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-brand-500 inline-block"></span> 标签</span>
-                <span class="flex items-center gap-1"><span class="w-5 border-t-2 border-dashed border-brand-300 inline-block"></span> 共现关联</span>
+                <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-gray-800 inline-block"></span> 标签</span>
+                <span class="flex items-center gap-1"><span class="w-5 border-t border-gray-300 inline-block"></span> 共现关联</span>
                 <button @click="showPanel=!showPanel" class="ml-1 px-2 py-0.5 rounded bg-gray-100 hover:bg-gray-200 text-gray-500 text-[11px] transition">
                     <span x-text="showPanel?'⟩':'⟨'"></span>
                 </button>
@@ -168,14 +168,10 @@
             <div class="flex-1 relative" id="wiki-graph-container">
                 <svg id="wiki-graph-svg"></svg>
                 <!-- Tooltip -->
-                <div x-show="wikiHoveredNode" x-cloak class="absolute bg-white/95 dark:bg-surface-800/95 backdrop-blur-sm rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 p-4 max-w-xs z-10 pointer-events-none"
+                <div x-show="wikiHoveredNode" x-cloak class="absolute bg-white/98 dark:bg-surface-800/98 rounded-lg shadow-lg border border-gray-200 dark:border-gray-600 px-4 py-3 max-w-xs z-10 pointer-events-none"
                      :style="`left:${wikiTooltipX}px;top:${wikiTooltipY}px`">
-                    <div class="flex items-center gap-2 mb-1">
-                        <span class="text-brand-600 font-bold text-sm">#</span>
-                        <div class="font-semibold text-sm text-gray-800" x-text="wikiHoveredNode?.label"></div>
-                    </div>
-                    <div class="text-xs text-gray-500" x-text="(wikiHoveredNode?.count||0)+' 篇相关文章'"></div>
-                    <div class="text-[10px] text-gray-400 mt-1 italic">点击查看文章列表</div>
+                    <div class="font-medium text-sm text-gray-900 dark:text-gray-100" x-text="wikiHoveredNode?.label"></div>
+                    <div class="text-[11px] text-gray-500 mt-1" x-text="(wikiHoveredNode?.count||0)+' 篇关联文章'"></div>
                 </div>
             </div>
             <!-- 右侧面板 (合并) -->
@@ -802,11 +798,8 @@ function app(){
             const W=container.clientWidth,H=container.clientHeight;
             svg.attr('width',W).attr('height',H);
 
-            const defs=svg.append('defs');
-            const grid=defs.append('pattern').attr('id','wgrid').attr('width',30).attr('height',30).attr('patternUnits','userSpaceOnUse');
-            grid.append('circle').attr('cx',15).attr('cy',15).attr('r',.8).attr('fill',this.dark?'#334155':'#cbd5e1');
-            svg.append('rect').attr('width',W).attr('height',H).attr('fill',this.dark?'#0f172a':'#f8faff');
-            svg.append('rect').attr('width',W).attr('height',H).attr('fill','url(#wgrid)');
+            // 干净背景
+            svg.append('rect').attr('width',W).attr('height',H).attr('fill',this.dark?'#111827':'#fafafa');
 
             const g=svg.append('g');
             svg.call(d3.zoom().scaleExtent([0.2,5]).on('zoom',e=>g.attr('transform',e.transform)));
@@ -814,58 +807,55 @@ function app(){
             const links=edges.map(e=>({...e}));
             const maxCount=Math.max(...nodes.map(n=>n.count),1);
 
-            // 统一配色：按文章数量分 3 档，从浅到深
-            function tagColor(count){
-                if(count>=4) return '#4f46e5';  // 深紫 — 核心主题
-                if(count>=2) return '#6366f1';  // 中紫 — 重要主题
-                return '#a5b4fc';               // 浅紫 — 一般主题
-            }
-
             const sim=d3.forceSimulation(nodes)
-                .force('link',d3.forceLink(links).id(d=>d.id).distance(100).strength(d=>Math.min(d.weight*0.3,0.8)))
-                .force('charge',d3.forceManyBody().strength(-300))
+                .force('link',d3.forceLink(links).id(d=>d.id).distance(120).strength(d=>Math.min(d.weight*0.25,0.6)))
+                .force('charge',d3.forceManyBody().strength(-350))
                 .force('center',d3.forceCenter(W/2,H/2))
-                .force('collision',d3.forceCollide().radius(d=>16+Math.min(d.count,8)*3+10))
-                .force('x',d3.forceX(W/2).strength(0.05))
-                .force('y',d3.forceY(H/2).strength(0.05));
+                .force('collision',d3.forceCollide().radius(d=>18+Math.min(d.count,8)*2.5+12))
+                .force('x',d3.forceX(W/2).strength(0.04))
+                .force('y',d3.forceY(H/2).strength(0.04));
 
+            // 连线：细灰线
             const link=g.append('g').selectAll('line').data(links).join('line')
-                .attr('stroke',this.dark?'#6366f1':'#c7d2fe')
-                .attr('stroke-width',d=>Math.max(1,d.weight*1.5))
-                .attr('stroke-dasharray','5,4')
+                .attr('stroke',this.dark?'#374151':'#d1d5db')
+                .attr('stroke-width',d=>Math.max(0.8,d.weight*1))
                 .attr('stroke-opacity',0.5);
 
             const node=g.append('g').selectAll('g').data(nodes).join('g').attr('class','graph-node')
                 .call(d3.drag().on('start',(e,d)=>{if(!e.active)sim.alphaTarget(0.3).restart();d.fx=d.x;d.fy=d.y}).on('drag',(e,d)=>{d.fx=e.x;d.fy=e.y}).on('end',(e,d)=>{if(!e.active)sim.alphaTarget(0);d.fx=null;d.fy=null}));
 
             const self=this;
+            const isDark=this.dark;
+
             node.each(function(d){
                 const el=d3.select(this);
-                const r=16+Math.min(d.count,8)*3;
-                const color=tagColor(d.count);
+                const r=16+Math.min(d.count,8)*2.5;
+                const intensity=Math.min(d.count/maxCount,1);
+                // 灰度渐变：文章越多越深
+                const gray=isDark?Math.round(100+intensity*120):Math.round(110-intensity*70);
+                const fillColor=`rgb(${gray},${gray},${Math.min(gray+8,255)})`;
+                const strokeColor=isDark?'#4b5563':'#9ca3af';
 
-                // 外圈光晕
-                el.append('circle').attr('r',r+5).attr('fill',color).attr('opacity',0.12);
-                // 主圆
-                el.append('circle').attr('r',r).attr('fill',color).attr('stroke','#fff').attr('stroke-width',2.5)
-                    .style('filter','drop-shadow(0 2px 8px rgba(79,70,229,0.2))');
-                // 文章数
-                el.append('text').text(d.count).attr('text-anchor','middle').attr('dy','5px')
-                    .attr('font-size',r>22?'15px':'12px').attr('font-weight','700').attr('fill','#fff');
-                // 标签名
-                const label=d.label.length>8?d.label.slice(0,8)+'…':d.label;
-                el.append('text').text(label).attr('dy',r+14).attr('text-anchor','middle')
-                    .attr('font-size','11px').attr('fill',self.dark?'#94a3b8':'#475569').attr('font-weight','600');
+                el.append('circle').attr('r',r).attr('fill',fillColor).attr('stroke',strokeColor).attr('stroke-width',1.2);
+
+                el.append('text').text(d.count).attr('text-anchor','middle').attr('dy','4px')
+                    .attr('font-size',r>22?'13px':'11px').attr('font-weight','600')
+                    .attr('fill',intensity>0.35?(isDark?'#111827':'#fff'):(isDark?'#e5e7eb':'#374151'))
+                    .style('font-family','Georgia,serif');
+
+                const label=d.label.length>10?d.label.slice(0,10)+'…':d.label;
+                el.append('text').text(label).attr('dy',r+13).attr('text-anchor','middle')
+                    .attr('font-size','10px').attr('fill',isDark?'#9ca3af':'#6b7280').attr('font-weight','500');
             });
 
             node.on('mouseover',(e,d)=>{
                 self.wikiHoveredNode=d;const r=container.getBoundingClientRect();self.wikiTooltipX=e.clientX-r.left+15;self.wikiTooltipY=e.clientY-r.top-10;
                 const conn=new Set();links.forEach(l=>{const s=l.source.id||l.source,t=l.target.id||l.target;if(s===d.id)conn.add(t);if(t===d.id)conn.add(s)});conn.add(d.id);
-                node.transition().duration(150).style('opacity',n=>conn.has(n.id)?1:0.15);
-                link.transition().duration(150).style('opacity',l=>{const s=l.source.id||l.source,t=l.target.id||l.target;return conn.has(s)&&conn.has(t)?0.8:0.05});
+                node.transition().duration(200).style('opacity',n=>conn.has(n.id)?1:0.12);
+                link.transition().duration(200).style('opacity',l=>{const s=l.source.id||l.source,t=l.target.id||l.target;return conn.has(s)&&conn.has(t)?0.9:0.04});
             }).on('mouseout',()=>{
-                self.wikiHoveredNode=null;node.transition().duration(150).style('opacity',1);
-                link.transition().duration(150).style('opacity',0.5);
+                self.wikiHoveredNode=null;node.transition().duration(200).style('opacity',1);
+                link.transition().duration(200).style('opacity',0.5);
             }).on('click',(e,d)=>{
                 self.selectedTagNode=d;
                 self.showPanel=true;
