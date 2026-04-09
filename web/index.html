@@ -512,10 +512,32 @@
         <!-- 消息列表 -->
         <div class="flex-1 overflow-y-auto p-3 space-y-3" x-ref="chatMessages">
             <!-- 欢迎消息 -->
-            <div x-show="messages.length===0" class="text-center py-8">
-                <div class="text-3xl mb-3">🤖</div>
-                <div class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">你好！我是你的知识库助手</div>
-                <div class="text-xs text-gray-400 mb-4">搜索知识、粘贴链接入库、查看状态，随时找我~</div>
+            <div x-show="messages.length===0" class="py-6 px-2">
+                <div class="text-center mb-4">
+                    <div class="w-12 h-12 bg-brand-100 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                        <svg class="w-7 h-7 text-brand-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <rect x="4" y="4" width="16" height="12" rx="3"/><circle cx="9" cy="10" r="1.2" fill="currentColor" stroke="none"/><circle cx="15" cy="10" r="1.2" fill="currentColor" stroke="none"/>
+                            <path d="M8 16v2a1 1 0 001 1h6a1 1 0 001-1v-2" stroke-linecap="round"/><path d="M2 8h2M20 8h2M12 2v2" stroke-linecap="round"/>
+                        </svg>
+                    </div>
+                    <div class="text-sm font-semibold text-gray-800 dark:text-gray-200">Local RAG 知识助手</div>
+                    <div class="text-[11px] text-gray-400 mt-1 leading-relaxed">我是你的个人知识库 AI 助手，帮你管理从公众号、小红书、知乎等平台收集的知识</div>
+                </div>
+                <div class="space-y-2 mb-4">
+                    <div class="flex items-start gap-2 px-3 py-2 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                        <span class="text-xs mt-0.5">🔍</span>
+                        <div><div class="text-[11px] font-medium text-gray-700 dark:text-gray-300">搜索知识</div><div class="text-[10px] text-gray-400">提问后自动检索知识库，AI 综合回答并标注来源</div></div>
+                    </div>
+                    <div class="flex items-start gap-2 px-3 py-2 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                        <span class="text-xs mt-0.5">📥</span>
+                        <div><div class="text-[11px] font-medium text-gray-700 dark:text-gray-300">粘贴链接入库</div><div class="text-[10px] text-gray-400">粘贴公众号/小红书/知乎链接，自动抓取并入库</div></div>
+                    </div>
+                    <div class="flex items-start gap-2 px-3 py-2 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                        <span class="text-xs mt-0.5">📊</span>
+                        <div><div class="text-[11px] font-medium text-gray-700 dark:text-gray-300">查看状态</div><div class="text-[10px] text-gray-400">问"知识库有多少篇"即可查看统计</div></div>
+                    </div>
+                </div>
+                <div class="text-[10px] text-gray-400 mb-2 text-center">试试这些问题 👇</div>
                 <div class="flex flex-wrap gap-2 justify-center">
                     <template x-for="q in quickQuestions" :key="q">
                         <button @click="sendMessage(q)" class="text-[11px] px-3 py-1.5 bg-brand-50 text-brand-600 rounded-full hover:bg-brand-100 transition" x-text="q"></button>

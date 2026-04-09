@@ -61,9 +61,9 @@ async def _build_context(intent_result: dict) -> tuple[str, Optional[dict]]:
                 answer = result.get("answer", "")
                 sources = result.get("sources", [])
                 source_list = "\n".join(
-                    f"  [{i+1}] {s.get('title', '未知')}" for i, s in enumerate(sources)
+                    f"  [{i+1}] 《{s.get('title', '未知')}》(匹配方式: {s.get('match_type', '')})" for i, s in enumerate(sources)
                 )
-                context = f"知识库搜索结果:\n\n{answer}\n\n参考来源:\n{source_list}"
+                context = f"以下是从知识库检索到的内容（请在回答中用 [来源: 文章标题] 标注信息出处）:\n\n{answer}\n\n参考来源:\n{source_list}"
                 return context, None
             except Exception as e:
                 logger.error(f"Search failed: {e}")

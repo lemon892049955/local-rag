@@ -1,0 +1,17 @@
+{
+  "version": 2,
+  "sessions": {
+    "655612ee3be742608ac8962339e77a73": [
+      {
+        "expertId": "DataAnalyticsReporter",
+        "name": "Phoebe",
+        "profession": "数据分析报告师",
+        "avatarUrl": "https://acc-1258344699.cos.accelerate.myqcloud.com/workbuddy/experts/avatars/09-Operations/DataAnalyticsReporter/DataAnalyticsReporter.png",
+        "promptUrl": "https://acc-1258344699.cos.accelerate.myqcloud.com/workbuddy/experts/experts/09-Operations/DataAnalyticsReporter/DataAnalyticsReporter_zh.md",
+        "usedAt": 1775703494371,
+        "industryId": "all"
+      }
+    ]
+  },
+  "lastUpdated": 1775703849544
+}
