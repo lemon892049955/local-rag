@@ -96,8 +96,33 @@ class XiaohongshuFetcher(BaseFetcher):
         images = note.get("images", []) or note.get("imageList", [])
         tags = []
 
+        # 识别视频帖
+        video_info = note.get("video", {})
+        is_video = bool(video_info) or note.get("type") == "video"
+        video_cover_url = ""
+
+        if is_video and isinstance(video_info, dict):
+            # 提取视频封面图（用于 OCR）
+            video_cover = video_info.get("cover", {}) or video_info.get("image", {})
+            if isinstance(video_cover, dict):
+                video_cover_url = video_cover.get("urlDefault") or video_cover.get("url") or ""
+            elif isinstance(video_cover, str):
+                video_cover_url = video_cover
+            # 如果封面在 firstFrame
+            if not video_cover_url:
+                first_frame = video_info.get("firstFrame", {})
+                if isinstance(first_frame, dict):
+                    video_cover_url = first_frame.get("urlDefault") or first_frame.get("url") or ""
+
+            # 视频时长
+            duration = video_info.get("duration", 0)
+            if duration:
+                desc = f"[视频 {int(duration)}秒]\n\n{desc}" if desc else f"[视频 {int(duration)}秒]"
+
+            logger.info(f"视频帖: 封面={'有' if video_cover_url else '无'}, 时长={duration}s")
+
         # 提取标签
-        tag_list = result.get("tagList", []) or result.get("tags", [])
+        tag_list = note.get("tagList", []) or result.get("tagList", []) or result.get("tags", [])
         if isinstance(tag_list, list):
             for t in tag_list:
                 if isinstance(t, dict):
@@ -109,6 +134,9 @@ class XiaohongshuFetcher(BaseFetcher):
 
         # 提取图片 URL
         image_urls = []
+        # 视频封面优先（视频帖的核心信息通常在封面/字幕上）
+        if video_cover_url and video_cover_url.startswith("http"):
+            image_urls.append(video_cover_url)
         if isinstance(images, list):
             for img in images:
                 if isinstance(img, str) and img.startswith("http"):
@@ -348,6 +376,30 @@ class XiaohongshuFetcher(BaseFetcher):
                         image_urls.append(img_url)
 
             content = f"{title}\n\n{desc}" if title else desc
+
+            # SSR 模式下也检测视频帖
+            video_data = None
+            for src in [note, preload, (old_note_data and next(iter(old_note_data.values()), {}).get("note", {}))]:
+                if src and isinstance(src, dict) and src.get("video"):
+                    video_data = src.get("video", {})
+                    break
+            if video_data and isinstance(video_data, dict):
+                # 提取视频封面
+                cover = video_data.get("cover", {}) or video_data.get("image", {})
+                cover_url = ""
+                if isinstance(cover, dict):
+                    cover_url = cover.get("urlDefault") or cover.get("url") or ""
+                elif isinstance(cover, str):
+                    cover_url = cover
+                if not cover_url:
+                    first_frame = video_data.get("firstFrame", {})
+                    if isinstance(first_frame, dict):
+                        cover_url = first_frame.get("urlDefault") or first_frame.get("url") or ""
+                if cover_url and cover_url.startswith("http"):
+                    image_urls.insert(0, cover_url)
+                duration = video_data.get("duration", 0)
+                if duration:
+                    content = f"[视频 {int(duration)}秒]\n\n{content}"
 
             if image_urls and content.strip():
                 content = self._interleave_image_placeholders(content, len(image_urls))
