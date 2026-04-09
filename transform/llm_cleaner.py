@@ -175,6 +175,12 @@ class LLMCleaner:
         for pat in noise_patterns:
             text = re.sub(pat, '\n', text, flags=re.IGNORECASE)
 
+        # === 1.5 小红书话题标签清洗 ===
+        # 格式: #话题名[话题]# 或 #话题名# 连续多个
+        text = re.sub(r'#[^#\n]{1,20}\[话题\]#\s*', '', text)
+        # 清理末尾连续的 #标签# 行（小红书常见）
+        text = re.sub(r'\n(#[^#\n]{1,20}#\s*){3,}', '\n', text)
+
         # === 2. 账号/联系方式信息 ===
         account_patterns = [
             r'(?:微信号|微信|wx|wechat)\s*[:：]\s*\S+.*?\n',

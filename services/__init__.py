@@ -69,16 +69,15 @@ async def ocr_images(raw: RawContent, max_images: int = 10):
                 try:
                     text = await ocr.ocr_image_url(img_url)
                     if text:
-                        raw.content = raw.content.replace(
-                            f"[IMG_{i+1}]", f"[图片{i+1}内容: {text}]"
-                        )
+                        formatted = f"\n\n> **📷 图片 {i+1}**\n" + "\n".join(f"> {line}" for line in text.strip().split("\n")) + "\n"
+                        raw.content = raw.content.replace(f"[IMG_{i+1}]", formatted)
                 except Exception:
                     pass
-            raw.content = re.sub(r'\[IMG_\d+\]', '[图片: 无法识别]', raw.content)
+            raw.content = re.sub(r'\[IMG_\d+\]', '', raw.content)
         else:
             result = await ocr.ocr_multiple_images(images_to_process)
             if result:
-                raw.content = raw.content + "\n\n---以下是图片内容---\n\n" + result
+                raw.content = raw.content + "\n\n---\n\n## 图片内容\n\n" + result
     except Exception as e:
         logger.warning(f"OCR 处理失败: {e}")
 
