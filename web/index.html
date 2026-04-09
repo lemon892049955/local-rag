@@ -156,8 +156,9 @@
                 <span class="text-[11px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full" x-text="wikiPages.length+' Wiki 页面 · '+stats.knowledge_files+' 篇原始文章'"></span>
             </div>
             <div class="flex items-center gap-3 text-[11px] text-gray-400">
-                <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-gray-800 inline-block"></span> 标签</span>
-                <span class="flex items-center gap-1"><span class="w-5 border-t border-gray-300 inline-block"></span> 共现关联</span>
+                <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:hsl(217,85%,75%)"></span> 少</span>
+                <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:hsl(217,90%,50%)"></span> 多</span>
+                <span class="flex items-center gap-1"><span class="w-4 inline-block" style="height:0;border-top:1px dashed #94a3b8"></span> 关联</span>
                 <button @click="showPanel=!showPanel" class="ml-1 px-2 py-0.5 rounded bg-gray-100 hover:bg-gray-200 text-gray-500 text-[11px] transition">
                     <span x-text="showPanel?'⟩':'⟨'"></span>
                 </button>
@@ -787,9 +788,7 @@ function app(){
             if(!this.wikiGraphData)return;
             let{nodes,edges}=this.wikiGraphData;if(!nodes.length)return;
 
-            // 过滤：只保留≥2篇文章的标签（减少杂乱），如果全部<2则保留全部
-            const filtered=nodes.filter(n=>n.count>=2);
-            nodes=filtered.length>=3?filtered:nodes;
+            // 不过滤，全部标签都显示
             const nodeIds=new Set(nodes.map(n=>n.id));
             edges=edges.filter(e=>nodeIds.has(e.source)&&nodeIds.has(e.target));
 
@@ -798,64 +797,89 @@ function app(){
             const W=container.clientWidth,H=container.clientHeight;
             svg.attr('width',W).attr('height',H);
 
-            // 干净背景
-            svg.append('rect').attr('width',W).attr('height',H).attr('fill',this.dark?'#111827':'#fafafa');
+            const isDark=this.dark;
+            svg.append('rect').attr('width',W).attr('height',H).attr('fill',isDark?'#0f172a':'#f8fafc');
 
             const g=svg.append('g');
             svg.call(d3.zoom().scaleExtent([0.2,5]).on('zoom',e=>g.attr('transform',e.transform)));
 
             const links=edges.map(e=>({...e}));
             const maxCount=Math.max(...nodes.map(n=>n.count),1);
+            const maxWeight=links.length?Math.max(...links.map(l=>l.weight),1):1;
 
             const sim=d3.forceSimulation(nodes)
-                .force('link',d3.forceLink(links).id(d=>d.id).distance(120).strength(d=>Math.min(d.weight*0.25,0.6)))
-                .force('charge',d3.forceManyBody().strength(-350))
+                .force('link',d3.forceLink(links).id(d=>d.id).distance(130).strength(d=>Math.min(d.weight*0.2,0.5)))
+                .force('charge',d3.forceManyBody().strength(-280))
                 .force('center',d3.forceCenter(W/2,H/2))
-                .force('collision',d3.forceCollide().radius(d=>18+Math.min(d.count,8)*2.5+12))
-                .force('x',d3.forceX(W/2).strength(0.04))
-                .force('y',d3.forceY(H/2).strength(0.04));
+                .force('collision',d3.forceCollide().radius(d=>20+Math.min(d.count,10)*2))
+                .force('x',d3.forceX(W/2).strength(0.035))
+                .force('y',d3.forceY(H/2).strength(0.035));
 
-            // 连线：细灰线
+            // 连线：全部虚线，权重影响虚线间距和透明度
             const link=g.append('g').selectAll('line').data(links).join('line')
-                .attr('stroke',this.dark?'#374151':'#d1d5db')
-                .attr('stroke-width',d=>Math.max(0.8,d.weight*1))
-                .attr('stroke-opacity',0.5);
+                .attr('stroke',isDark?'#475569':'#94a3b8')
+                .attr('stroke-width',0.8)
+                .attr('stroke-opacity',d=>0.2+Math.min(d.weight/maxWeight,1)*0.4)
+                .attr('stroke-dasharray',d=>{
+                    const w=d.weight/maxWeight;
+                    if(w>0.6) return '8,3';
+                    if(w>0.3) return '5,4';
+                    return '3,5';
+                })
+                .attr('stroke-linecap','round');
 
+            // 节点
             const node=g.append('g').selectAll('g').data(nodes).join('g').attr('class','graph-node')
                 .call(d3.drag().on('start',(e,d)=>{if(!e.active)sim.alphaTarget(0.3).restart();d.fx=d.x;d.fy=d.y}).on('drag',(e,d)=>{d.fx=e.x;d.fy=e.y}).on('end',(e,d)=>{if(!e.active)sim.alphaTarget(0);d.fx=null;d.fy=null}));
 
             const self=this;
-            const isDark=this.dark;
 
             node.each(function(d){
                 const el=d3.select(this);
-                const r=16+Math.min(d.count,8)*2.5;
                 const intensity=Math.min(d.count/maxCount,1);
-                // 灰度渐变：文章越多越深
-                const gray=isDark?Math.round(100+intensity*120):Math.round(110-intensity*70);
-                const fillColor=`rgb(${gray},${gray},${Math.min(gray+8,255)})`;
-                const strokeColor=isDark?'#4b5563':'#9ca3af';
+                const r=14+Math.min(d.count,10)*2;
 
-                el.append('circle').attr('r',r).attr('fill',fillColor).attr('stroke',strokeColor).attr('stroke-width',1.2);
+                // 蓝色深浅 = 文章数量多少：浅蓝(少) → 深蓝(多)
+                const lightness=isDark?Math.round(25+intensity*30):Math.round(95-intensity*45);
+                const sat=isDark?Math.round(70+intensity*30):Math.round(80+intensity*20);
+                const fillColor=`hsl(217,${sat}%,${lightness}%)`;
+                const borderColor=isDark?`hsl(217,${sat}%,${Math.min(lightness+15,70)}%)`:`hsl(217,${sat}%,${Math.max(lightness-12,35)}%)`;
 
+                el.append('circle').attr('r',r)
+                    .attr('fill',fillColor)
+                    .attr('stroke',borderColor)
+                    .attr('stroke-width',1.2);
+
+                // 圆形中间显示数量
                 el.append('text').text(d.count).attr('text-anchor','middle').attr('dy','4px')
-                    .attr('font-size',r>22?'13px':'11px').attr('font-weight','600')
-                    .attr('fill',intensity>0.35?(isDark?'#111827':'#fff'):(isDark?'#e5e7eb':'#374151'))
-                    .style('font-family','Georgia,serif');
+                    .attr('font-size',r>20?'13px':'11px').attr('font-weight','600')
+                    .attr('fill',intensity>0.35?'#ffffff':(isDark?'#e2e8f0':'#1e3a5f'))
+                    .style('font-family','Georgia,serif')
+                    .style('pointer-events','none');
 
+                // 标签名在下方
                 const label=d.label.length>10?d.label.slice(0,10)+'…':d.label;
                 el.append('text').text(label).attr('dy',r+13).attr('text-anchor','middle')
-                    .attr('font-size','10px').attr('fill',isDark?'#9ca3af':'#6b7280').attr('font-weight','500');
+                    .attr('font-size','10px')
+                    .attr('fill',isDark?'#94a3b8':'#64748b')
+                    .attr('font-weight','500')
+                    .style('pointer-events','none');
             });
 
             node.on('mouseover',(e,d)=>{
                 self.wikiHoveredNode=d;const r=container.getBoundingClientRect();self.wikiTooltipX=e.clientX-r.left+15;self.wikiTooltipY=e.clientY-r.top-10;
                 const conn=new Set();links.forEach(l=>{const s=l.source.id||l.source,t=l.target.id||l.target;if(s===d.id)conn.add(t);if(t===d.id)conn.add(s)});conn.add(d.id);
-                node.transition().duration(200).style('opacity',n=>conn.has(n.id)?1:0.12);
-                link.transition().duration(200).style('opacity',l=>{const s=l.source.id||l.source,t=l.target.id||l.target;return conn.has(s)&&conn.has(t)?0.9:0.04});
+                node.transition().duration(200).style('opacity',n=>conn.has(n.id)?1:0.15);
+                link.transition().duration(200)
+                    .attr('stroke',l=>{const s=l.source.id||l.source,t=l.target.id||l.target;return conn.has(s)&&conn.has(t)?(isDark?'#60a5fa':'#3b82f6'):(isDark?'#1e293b':'#e2e8f0')})
+                    .attr('stroke-opacity',l=>{const s=l.source.id||l.source,t=l.target.id||l.target;return conn.has(s)&&conn.has(t)?0.7:0.08})
+                    .attr('stroke-width',l=>{const s=l.source.id||l.source,t=l.target.id||l.target;return conn.has(s)&&conn.has(t)?1.2:0.4});
             }).on('mouseout',()=>{
                 self.wikiHoveredNode=null;node.transition().duration(200).style('opacity',1);
-                link.transition().duration(200).style('opacity',0.5);
+                link.transition().duration(200)
+                    .attr('stroke',isDark?'#475569':'#94a3b8')
+                    .attr('stroke-opacity',d=>0.2+Math.min(d.weight/maxWeight,1)*0.4)
+                    .attr('stroke-width',0.8);
             }).on('click',(e,d)=>{
                 self.selectedTagNode=d;
                 self.showPanel=true;
