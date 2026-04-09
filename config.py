@@ -48,7 +48,12 @@ def get_llm_config() -> dict:
     return LLM_CONFIGS[provider]
 
 # ===== Embedding =====
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "BAAI/bge-small-zh-v1.5")
+# bge 系列查询时需要加 instruction 前缀以区分 query/document，提升检索效果
+EMBEDDING_QUERY_INSTRUCTION = os.getenv(
+    "EMBEDDING_QUERY_INSTRUCTION",
+    "为这个句子生成表示以用于检索相关文章：",
+)
 
 # ===== 服务 =====
 HOST = os.getenv("HOST", "0.0.0.0")

@@ -171,8 +171,8 @@
                 <span class="text-[11px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full" x-text="wikiPages.length+' Wiki 页面 · '+stats.knowledge_files+' 篇原始文章'"></span>
             </div>
             <div class="flex items-center gap-3 text-[11px] text-gray-400">
-                <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:hsl(210,70%,80%)"></span> 冷</span>
-                <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:hsl(220,80%,55%)"></span><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:hsl(30,85%,50%)"></span><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:hsl(8,75%,48%)"></span> 热</span>
+                <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:hsla(210,65%,78%,0.5)"></span> 少</span>
+                <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:hsla(240,80%,55%,0.8)"></span><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:hsla(270,90%,45%,1)"></span> 多</span>
                 <span class="flex items-center gap-1"><span class="w-4 inline-block" style="height:0;border-top:1px dashed #94a3b8"></span> 关联</span>
                 <button @click="showPanel=!showPanel" class="ml-1 px-2 py-0.5 rounded bg-gray-100 hover:bg-gray-200 text-gray-500 text-[11px] transition">
                     <span x-text="showPanel?'⟩':'⟨'"></span>
@@ -855,27 +855,28 @@ function app(){
                 const intensity=Math.min(d.count/maxCount,1);
                 const r=14+Math.min(d.count,10)*2;
 
-                // 热度渐变：浅蓝 → 蓝 → 靛蓝 → 橙 → 红
-                function heatColor(t){
-                    // t: 0~1, 0=冷 1=热
-                    if(t<0.25) return isDark?`hsl(210,60%,${30+t*80}%)`:`hsl(210,70%,${88-t*80}%)`;
-                    if(t<0.5)  return isDark?`hsl(220,75%,${45+(t-0.25)*60}%)`:`hsl(220,80%,${68-(t-0.25)*60}%)`;
-                    if(t<0.75) return isDark?`hsl(30,80%,${40+(t-0.5)*40}%)`:`hsl(30,85%,${58-(t-0.5)*30}%)`;
-                    return isDark?`hsl(8,80%,${45+(t-0.75)*20}%)`:`hsl(8,75%,${52-(t-0.75)*15}%)`;
-                }
-                const fillColor=heatColor(intensity);
-                const borderT=Math.min(intensity+0.1,1);
-                const borderColor=heatColor(borderT);
+                // 蓝紫色系渐变：浅蓝 → 蓝 → 靛蓝 → 紫
+                // 色相从 210(蓝) 平滑过渡到 270(紫)
+                const hue=210+intensity*60;
+                const sat=isDark?(55+intensity*30):(65+intensity*25);
+                const light=isDark?(30+intensity*20):(78-intensity*38);
+                // 透明度：少的偏透明，多的更实
+                const opacity=0.45+intensity*0.55;
+
+                const fillColor=`hsla(${hue},${sat}%,${light}%,${opacity})`;
+                const borderHue=Math.min(hue+8,275);
+                const borderLight=isDark?Math.min(light+12,65):Math.max(light-10,35);
+                const borderColor=`hsla(${borderHue},${sat+5}%,${borderLight}%,${Math.min(opacity+0.2,1)})`;
 
                 el.append('circle').attr('r',r)
                     .attr('fill',fillColor)
                     .attr('stroke',borderColor)
-                    .attr('stroke-width',1.2);
+                    .attr('stroke-width',1);
 
                 // 圆形中间显示数量
                 el.append('text').text(d.count).attr('text-anchor','middle').attr('dy','4px')
                     .attr('font-size',r>20?'13px':'11px').attr('font-weight','600')
-                    .attr('fill',intensity>0.3?'#ffffff':(isDark?'#e2e8f0':'#1e3a5f'))
+                    .attr('fill',intensity>0.35?'rgba(255,255,255,0.95)':(isDark?'rgba(200,210,230,0.9)':'rgba(30,50,95,0.8)'))
                     .style('font-family','Georgia,serif')
                     .style('pointer-events','none');
 
