@@ -3,11 +3,11 @@ type: topic
 title: Anthropic的Claude Code的Auto Dream功能
 summary: Anthropic的Claude Code新增Auto Dream功能，允许Agent在休息时自动生成梦境。
 created_at: '2026-04-08'
-updated_at: '2026-04-08'
+updated_at: '2026-04-09'
 sources:
-  - 260408_K2An7xzP_Anthropic推出Claude_Code的Auto_Dream功能.md
+- 260408_K2An7xzP_Anthropic推出Claude_Code的Auto_Dream功能.md
+- 260409_GqQS668f_Claude_Code：终端中的编程助手.md
 ---
-
 # Anthropic的Claude Code的Auto Dream功能
 
 > Anthropic的Claude Code新增Auto Dream功能，使得Agent在休息时能够自动生成梦境。
@@ -31,4 +31,8 @@ Anthropic最近推出了一个名为Auto Dream的新功能，该功能使得Agen
 
 ## 新增洞察
 
-_(后续更新在此追加)_
+### 2026-04-09 | 来源: 260409_GqQS668f_Claude_Code：终端中的编程助手.md
+
+Claude Code是一个终端编程工具，通过自然语言命令帮助执行常规任务、解释复杂代码和处理Git工作流。[来源: 260409_GqQS668f_Claude_Code：终端中的编程助手.md]
+
+[来源: 260409_GqQS668f_Claude_Code：终端中的编程助手.md]
