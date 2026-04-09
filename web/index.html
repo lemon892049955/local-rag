@@ -231,7 +231,7 @@
                     <div class="text-[10px] text-gray-400 mb-2" x-text="(selectedTagNode?.articles||[]).length+' 篇相关文章'"></div>
                     <div class="space-y-1.5 max-h-60 overflow-y-auto">
                         <template x-for="art in (selectedTagNode?.articles||[])" :key="art.file_path">
-                            <div @click="openDetailByPath(art.file_path)" class="flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer hover:bg-brand-50 transition group">
+                            <div @click="openDetailByFilepath(art.file_path)" class="flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer hover:bg-brand-50 transition group">
                                 <span class="platform-icon text-[8px]" :class="platformBg(art.platform)" x-text="platformEmoji(art.platform)"></span>
                                 <div class="flex-1 min-w-0">
                                     <div class="text-[11px] font-medium text-gray-700 group-hover:text-brand-600 truncate" x-text="art.title"></div>
@@ -808,7 +808,14 @@ function app(){
         renderWikiGraph(){
             const svg=d3.select('#wiki-graph-svg');svg.selectAll('*').remove();
             if(!this.wikiGraphData)return;
-            const{nodes,edges}=this.wikiGraphData;if(!nodes.length)return;
+            let{nodes,edges}=this.wikiGraphData;if(!nodes.length)return;
+
+            // 过滤：只保留≥2篇文章的标签（减少杂乱），如果全部<2则保留全部
+            const filtered=nodes.filter(n=>n.count>=2);
+            nodes=filtered.length>=3?filtered:nodes;
+            const nodeIds=new Set(nodes.map(n=>n.id));
+            edges=edges.filter(e=>nodeIds.has(e.source)&&nodeIds.has(e.target));
+
             const container=document.getElementById('wiki-graph-container');
             if(!container)return;
             const W=container.clientWidth,H=container.clientHeight;
@@ -820,55 +827,50 @@ function app(){
             svg.append('rect').attr('width',W).attr('height',H).attr('fill',this.dark?'#0f172a':'#f8faff');
             svg.append('rect').attr('width',W).attr('height',H).attr('fill','url(#wgrid)');
 
-            // 渐变
-            const grad=defs.append('radialGradient').attr('id','wgrad-tag');
-            grad.append('stop').attr('offset','0%').attr('stop-color','#a5b4fc');
-            grad.append('stop').attr('offset','100%').attr('stop-color','#6366f1');
-
             const g=svg.append('g');
             svg.call(d3.zoom().scaleExtent([0.2,5]).on('zoom',e=>g.attr('transform',e.transform)));
 
             const links=edges.map(e=>({...e}));
             const maxCount=Math.max(...nodes.map(n=>n.count),1);
 
+            // 统一配色：按文章数量分 3 档，从浅到深
+            function tagColor(count){
+                if(count>=4) return '#4f46e5';  // 深紫 — 核心主题
+                if(count>=2) return '#6366f1';  // 中紫 — 重要主题
+                return '#a5b4fc';               // 浅紫 — 一般主题
+            }
+
             const sim=d3.forceSimulation(nodes)
                 .force('link',d3.forceLink(links).id(d=>d.id).distance(100).strength(d=>Math.min(d.weight*0.3,0.8)))
-                .force('charge',d3.forceManyBody().strength(-250))
+                .force('charge',d3.forceManyBody().strength(-300))
                 .force('center',d3.forceCenter(W/2,H/2))
-                .force('collision',d3.forceCollide().radius(d=>14+d.count*4+10))
+                .force('collision',d3.forceCollide().radius(d=>16+Math.min(d.count,8)*3+10))
                 .force('x',d3.forceX(W/2).strength(0.05))
                 .force('y',d3.forceY(H/2).strength(0.05));
 
             const link=g.append('g').selectAll('line').data(links).join('line')
-                .attr('stroke','#a5b4fc')
+                .attr('stroke',this.dark?'#6366f1':'#c7d2fe')
                 .attr('stroke-width',d=>Math.max(1,d.weight*1.5))
                 .attr('stroke-dasharray','5,4')
-                .attr('stroke-opacity',0.4);
+                .attr('stroke-opacity',0.5);
 
             const node=g.append('g').selectAll('g').data(nodes).join('g').attr('class','graph-node')
                 .call(d3.drag().on('start',(e,d)=>{if(!e.active)sim.alphaTarget(0.3).restart();d.fx=d.x;d.fy=d.y}).on('drag',(e,d)=>{d.fx=e.x;d.fy=e.y}).on('end',(e,d)=>{if(!e.active)sim.alphaTarget(0);d.fx=null;d.fy=null}));
 
             const self=this;
-            // 调色板
-            const palettes=['#6366f1','#8b5cf6','#3b82f6','#0891b2','#059669','#d946ef','#e11d48','#ea580c','#4f46e5','#7c3aed','#2563eb','#0d9488'];
-            function tagColor(name){const idx=Math.abs(name.split('').reduce((a,c)=>a+c.charCodeAt(0),0))%palettes.length;return palettes[idx]}
-
             node.each(function(d){
                 const el=d3.select(this);
-                const r=14+Math.min(d.count,8)*3;
-                const color=tagColor(d.label);
+                const r=16+Math.min(d.count,8)*3;
+                const color=tagColor(d.count);
 
                 // 外圈光晕
-                el.append('circle').attr('r',r+4).attr('fill',color).attr('opacity',0.15);
+                el.append('circle').attr('r',r+5).attr('fill',color).attr('opacity',0.12);
                 // 主圆
                 el.append('circle').attr('r',r).attr('fill',color).attr('stroke','#fff').attr('stroke-width',2.5)
-                    .style('filter','drop-shadow(0 2px 6px rgba(0,0,0,0.15))');
-                // # 号
-                el.append('text').text('#').attr('text-anchor','middle').attr('dy','1px')
-                    .attr('font-size',r>20?'14px':'11px').attr('font-weight','700').attr('fill','rgba(255,255,255,0.6)');
+                    .style('filter','drop-shadow(0 2px 8px rgba(79,70,229,0.2))');
                 // 文章数
-                el.append('text').text(d.count).attr('text-anchor','middle').attr('dy',r>20?'14px':'12px')
-                    .attr('font-size','9px').attr('fill','rgba(255,255,255,0.8)').attr('font-weight','600');
+                el.append('text').text(d.count).attr('text-anchor','middle').attr('dy','5px')
+                    .attr('font-size',r>22?'15px':'12px').attr('font-weight','700').attr('fill','#fff');
                 // 标签名
                 const label=d.label.length>8?d.label.slice(0,8)+'…':d.label;
                 el.append('text').text(label).attr('dy',r+14).attr('text-anchor','middle')
@@ -882,7 +884,7 @@ function app(){
                 link.transition().duration(150).style('opacity',l=>{const s=l.source.id||l.source,t=l.target.id||l.target;return conn.has(s)&&conn.has(t)?0.8:0.05});
             }).on('mouseout',()=>{
                 self.wikiHoveredNode=null;node.transition().duration(150).style('opacity',1);
-                link.transition().duration(150).style('opacity',0.4);
+                link.transition().duration(150).style('opacity',0.5);
             }).on('click',(e,d)=>{
                 self.selectedTagNode=d;
                 self.showPanel=true;
@@ -898,7 +900,8 @@ function app(){
         searchByTag(tag){this.activeCategory=tag;this.filteredList=this.knowledgeList.filter(i=>(i.tags||[]).includes(tag));this.page='index'},
         doQuickSearch(){if(this.quickSearch.trim()){this.searchQuery=this.quickSearch;this.quickSearch='';this.page='search';this.$nextTick(()=>this.doSearch())}},
         async openDetail(item){this.prevPage=this.page;this.page='detail';this.detailLoading=true;this.detailData=null;this.editMode=false;try{const fn=item.file_path.split('/').pop();this.detailData=await(await fetch('/api/knowledge/'+encodeURIComponent(fn))).json()}catch(e){}this.detailLoading=false},
-        openDetailByPath(path){const item=this.knowledgeList.find(i=>i.file_path===path);if(item)this.openDetail(item)},
+        openDetailByPath(path){const item=this.knowledgeList.find(i=>i.file_path===path);if(item)this.openDetail(item);else this.openDetailByFilepath(path)},
+        openDetailByFilepath(fp){const fn=fp.split('/').pop();this.prevPage=this.page;this.page='detail';this.detailLoading=true;this.detailData=null;this.editMode=false;fetch('/api/knowledge/'+encodeURIComponent(fn)).then(r=>{if(r.ok)return r.json();throw new Error('not found')}).then(d=>{this.detailData=d;this.detailLoading=false}).catch(()=>{this.detailLoading=false;this.detailData={meta:{title:'文章未找到'},content:'该文章可能已被删除。'}})},
         openDetailByFilename(fn){const item=this.knowledgeList.find(i=>i.file_path.endsWith(fn));if(item){this.openDetail(item)}else{this.prevPage=this.page;this.page='detail';this.detailLoading=true;this.detailData=null;this.editMode=false;fetch('/api/knowledge/'+encodeURIComponent(fn)).then(r=>r.json()).then(d=>{this.detailData=d;this.detailLoading=false}).catch(()=>{this.detailLoading=false})}},
         async saveEdit(){if(!this.editContent.trim()||this.editSaving)return;this.editSaving=true;try{const fn=this.detailData?.filename;const r=await fetch('/api/knowledge/'+encodeURIComponent(fn),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:this.editContent})});if(r.ok){this.detailData.content=this.editContent;this.editMode=false}}catch(e){}this.editSaving=false},
         formatSourceTitle(fn){return fn.replace(/^\d{6}_[a-zA-Z0-9]+_/,'').replace(/\.md$/,'').replace(/_/g,' ')},

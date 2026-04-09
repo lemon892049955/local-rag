@@ -3,10 +3,11 @@ type: topic
 title: Karpathy的AI个人知识库搭建教程
 summary: Andrej Karpathy分享了使用AI搭建个人知识库的方法论和提示词。
 created_at: '2026-04-08'
-updated_at: '2026-04-08'
+updated_at: '2026-04-09'
 sources:
 - 260407_fiSkSzHX_Karpathy的AI个人知识库搭建教程.md
 - 260408_NUqtHeCb_利用LLM构建个人知识库的模式.md
+- 260409_8WK4z8Y5_Karpathy的AI个人知识库构建指南.md
 ---
 # Karpathy的AI个人知识库搭建教程
 
@@ -39,6 +40,19 @@ index.md 和 log.md。
 - [[AI辅助知识管理]]
 
 ## 新增洞察
+
+### 2026-04-09 | 来源: 260409_8WK4z8Y5_Karpathy的AI个人知识库构建指南.md
+
+### 新增洞察
+
+Karpathy 提出的个人知识库构建方法论中，LLM Wiki 的核心在于持续积累而非每次从头开始。这种方法通过构建一个永久性的 Wiki，避免了 RAG 模式中 LLM 重复工作的问题。Wiki 作为复利资产，与 RAG 按次计费的方式形成对比。[来源：260409_8WK4z8Y5_Karpathy的AI个人知识库构建指南.md]
+
+整个系统分为三层架构：只读区（原始资料）、写作区（Wiki 知识库）、规则区（Schema 规范文档）。原始资料只读，Wiki 由 LLM 负责写作和维护，Schema 规范文档定义结构、约定、工作流。[来源：260409_8WK4z8Y5_Karpathy的AI个人知识库构建指南.md]
+
+Karpathy 的实际工作方式是将 LLM 作为程序员，Obsidian 作为 IDE，Wiki 作为代码库，通过对话窗口修改文件，实时显示结果，实现知识的结构化和持续更新。[来源：260409_8WK4z8Y5_Karpathy的AI个人知识库构建指南.md]
+
+[来源: 260409_8WK4z8Y5_Karpathy的AI个人知识库构建指南.md]
+
 
 ### 2026-04-08 | 来源: 260408_NUqtHeCb_利用LLM构建个人知识库的模式.md
 
