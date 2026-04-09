@@ -53,32 +53,37 @@ def _get_indexer():
     return _indexer
 
 
-async def ocr_images(raw: RawContent, max_images: int = 5):
-    """对抓取结果中的图片执行 OCR，原地修改 raw.content"""
+async def ocr_images(raw: RawContent, max_images: int = 10):
+    """对抓取结果中的图片执行智能识别，原地修改 raw.content
+
+    v0.7: 支持图片分类→专用 prompt、多图关联理解
+    """
     if not raw.images:
         return
 
     try:
         from ingestion.vision_ocr import VisionOCR
         ocr = VisionOCR()
-        ocr_results = []
-        for i, img_url in enumerate(raw.images[:max_images]):
-            try:
-                text = await ocr.ocr_image_url(img_url)
-                if text:
-                    ocr_results.append((i + 1, text))
-            except Exception:
-                pass
+        images_to_process = raw.images[:max_images]
+        has_placeholders = "[IMG_" in raw.content
 
-        if ocr_results:
-            has_placeholders = "[IMG_" in raw.content
-            if has_placeholders:
-                for idx, text in ocr_results:
-                    raw.content = raw.content.replace(f"[IMG_{idx}]", f"[图片{idx}内容: {text}]")
-                raw.content = re.sub(r'\[IMG_\d+\]', '[图片: 无法识别]', raw.content)
-            else:
-                ocr_text = "\n\n".join(f"[图片{idx}内容: {text}]" for idx, text in ocr_results)
-                raw.content = raw.content + "\n\n---以下是图片内容---\n\n" + ocr_text
+        if has_placeholders:
+            # 有占位符：逐张处理，保持图文位置关系
+            for i, img_url in enumerate(images_to_process):
+                try:
+                    text = await ocr.ocr_image_url(img_url)
+                    if text:
+                        raw.content = raw.content.replace(
+                            f"[IMG_{i+1}]", f"[图片{i+1}内容: {text}]"
+                        )
+                except Exception:
+                    pass
+            raw.content = re.sub(r'\[IMG_\d+\]', '[图片: 无法识别]', raw.content)
+        else:
+            # 无占位符：使用多图关联理解（≤3张）或逐张处理
+            result = await ocr.ocr_multiple_images(images_to_process)
+            if result:
+                raw.content = raw.content + "\n\n---以下是图片内容---\n\n" + result
     except Exception as e:
         logger.warning(f"OCR 处理失败: {e}")
 
