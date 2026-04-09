@@ -139,9 +139,12 @@ class LLMCleaner:
         """基础降噪（纯规则，不用 LLM）
 
         去除：
-        - 公众号/小红书常见引导语
-        - 多余空行
-        - 无意义的分隔线堆叠
+        - 公众号/小红书/知乎常见引导语和尾部广告
+        - 账号信息（微信号、公众号名、抖音号等）
+        - 招聘/商务合作/投稿信息
+        - 版权声明/免责声明
+        - 重复段落（微信抓取时常见）
+        - 多余空行和分隔线堆叠
         保留：
         - 所有正文内容、案例、论述、数据
         - 图片 OCR 占位符/内容
@@ -149,8 +152,9 @@ class LLMCleaner:
         """
         text = content
 
-        # 去公众号引导语
+        # === 1. 公众号/平台引导语 ===
         noise_patterns = [
+            # 关注/转发引导
             r'点击.*?关注.*?\n',
             r'长按.*?识别.*?二维码.*?\n',
             r'扫码.*?关注.*?\n',
@@ -160,17 +164,97 @@ class LLMCleaner:
             r'(?:欢迎|记得)(?:点赞|转发|分享|收藏|在看).*?\n',
             r'↓+\s*点击.*?↓+',
             r'戳.*?"阅读原文".*',
+            r'(?:喜欢|觉得有用).*?(?:点赞|在看|转发|分享).*?\n',
+            r'点击下方.*?(?:名片|卡片|关注).*?\n',
+            r'(?:星标|置顶).*?公众号.*?\n',
+            # 小红书引导
+            r'#小红书.*?\n',
+            r'(?:关注我|关注作者).*?(?:获取|了解|更多).*?\n',
+            r'(?:点赞|收藏|评论).*?(?:三连|支持).*?\n',
         ]
         for pat in noise_patterns:
             text = re.sub(pat, '\n', text, flags=re.IGNORECASE)
 
-        # 去过多连续空行（保留最多2个）
+        # === 2. 账号/联系方式信息 ===
+        account_patterns = [
+            r'(?:微信号|微信|wx|wechat)\s*[:：]\s*\S+.*?\n',
+            r'(?:公众号|订阅号|服务号)\s*[:：]\s*\S+.*?\n',
+            r'(?:抖音号|抖音|dy)\s*[:：]\s*\S+.*?\n',
+            r'(?:小红书号|小红书ID|xhs)\s*[:：]\s*\S+.*?\n',
+            r'(?:微博|weibo)\s*[:：]\s*\S+.*?\n',
+            r'(?:QQ|qq群?|QQ群?)\s*[:：]\s*\d+.*?\n',
+            r'(?:电话|手机|tel|phone)\s*[:：]\s*[\d\-+]+.*?\n',
+            r'(?:邮箱|email|mail)\s*[:：]\s*\S+@\S+.*?\n',
+            r'添加.*?(?:微信|好友|助手).*?(?:备注|了解|咨询).*?\n',
+            r'加.*?(?:群|微信|好友).*?(?:交流|学习|探讨).*?\n',
+        ]
+        for pat in account_patterns:
+            text = re.sub(pat, '\n', text, flags=re.IGNORECASE)
+
+        # === 3. 招聘/商务/投稿 ===
+        biz_patterns = [
+            r'(?:商务合作|广告合作|品牌合作).*?(?:请联系|详情|咨询).*?\n',
+            r'(?:投稿|来稿).*?(?:请发|邮箱|联系).*?\n',
+            r'(?:我们在招人|我们正在招|招聘|岗位).*?(?:欢迎|详情|见).*?\n',
+            r'(?:转载|授权).*?(?:请联系|后台|注明).*?\n',
+        ]
+        for pat in biz_patterns:
+            text = re.sub(pat, '\n', text, flags=re.IGNORECASE)
+
+        # === 4. 版权/免责声明（通常在末尾，整段去除） ===
+        tail_noise = [
+            r'\n(?:免责声明|版权声明|原创声明|©|Copyright).*',
+            r'\n(?:本文由|本文转自|本文来源).*?(?:授权|转载|发布).*',
+            r'\n(?:侵权|侵删).*?(?:联系|删除).*',
+        ]
+        for pat in tail_noise:
+            text = re.sub(pat, '', text, flags=re.IGNORECASE | re.DOTALL)
+
+        # === 5. 公众号后台操作提示 ===
+        text = re.sub(r'(?:公众号|后台).*?(?:回复|发送).*?(?:获取|领取|下载).*?\n', '\n', text, flags=re.IGNORECASE)
+        text = re.sub(r'(?:公众号|后台).*?(?:点击|菜单).*?(?:咨询|客服|联系).*?\n', '\n', text, flags=re.IGNORECASE)
+
+        # === 6. 重复段落去除（微信抓取常见：同一段出现两次） ===
+        text = self._remove_duplicate_paragraphs(text)
+
+        # === 7. 末尾重复链接去除（URL 和标题各出现一次） ===
+        text = re.sub(r'\n(https?://\S+)\n\n\1\b', r'\n\1', text)  # 连续相同URL
+        lines = text.split('\n')
+        cleaned_lines = []
+        prev_line = ''
+        for line in lines:
+            stripped = line.strip()
+            # 跳过和上一行内容完全相同的行
+            if stripped and stripped == prev_line:
+                continue
+            cleaned_lines.append(line)
+            if stripped:
+                prev_line = stripped
+        text = '\n'.join(cleaned_lines)
+
+        # === 8. 清理多余空行（保留最多2个） ===
         text = re.sub(r'\n{4,}', '\n\n\n', text)
 
-        # 去首尾空白
+        # === 9. 去首尾空白 ===
         text = text.strip()
 
         return text
+
+    def _remove_duplicate_paragraphs(self, text: str) -> str:
+        """去除重复段落（微信公众号抓取时，列表项和详情常重复）"""
+        paragraphs = text.split('\n\n')
+        seen = set()
+        result = []
+        for para in paragraphs:
+            # 标准化：去空白、去 Markdown 符号后比较
+            normalized = re.sub(r'[\s\-\*#>]+', '', para.strip())
+            if len(normalized) < 10:
+                result.append(para)  # 短段落保留（可能是分隔线等）
+                continue
+            if normalized not in seen:
+                seen.add(normalized)
+                result.append(para)
+        return '\n\n'.join(result)
 
     def _parse_json(self, raw: str) -> dict:
         """解析 LLM 的 JSON 输出（带容错）"""
