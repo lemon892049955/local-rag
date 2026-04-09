@@ -64,7 +64,7 @@ RAG_USER_TEMPLATE = """用户问题：{query}
 
 
 class HybridSearcher:
-    """混合检索 + RAG 答案生成 (v0.3 并行多路召回)"""
+    """混合检索 + RAG 答案生成 (v0.7 并行多路召回 + Reranker)"""
 
     def __init__(self, indexer=None):
         self.vector_indexer = indexer or VectorIndexer()
@@ -72,6 +72,7 @@ class HybridSearcher:
         self.wiki_bm25 = BM25Index()
         self._data_bm25_built = False
         self._wiki_bm25_built = False
+        self._reranker = None
 
         config = get_llm_config()
         self.client = OpenAI(
@@ -79,6 +80,14 @@ class HybridSearcher:
             base_url=config["base_url"],
         )
         self.model = config["model"]
+
+    @property
+    def reranker(self):
+        """延迟加载 Cross-Encoder Reranker"""
+        if self._reranker is None:
+            from retrieval.reranker import Reranker
+            self._reranker = Reranker()
+        return self._reranker
 
     def _ensure_bm25(self):
         """确保 BM25 索引已构建"""
@@ -173,6 +182,19 @@ class HybridSearcher:
                 "sources": [],
                 "debug": {"queries": queries, "data_hits": 0, "wiki_hits": 0},
             }
+
+        # 4. Cross-Encoder Re-ranking 精排
+        all_candidates = data_merged + wiki_merged
+        if len(all_candidates) > 2:
+            try:
+                reranked = self.reranker.rerank(query, all_candidates, top_k=5)
+                data_merged = [c for c in reranked if "wiki" not in c.get("source_file", "")][:3]
+                wiki_merged = [c for c in reranked if "wiki" in c.get("source_file", "")][:2]
+                # 如果 reranker 把所有结果都归到一边，保底
+                if not data_merged and not wiki_merged:
+                    data_merged = reranked[:3]
+            except Exception as e:
+                logger.warning(f"Reranker 失败，使用 RRF 排序: {e}")
 
         # 4. 组装双层 Context
         wiki_context = "_(Wiki 暂无相关页面)_"

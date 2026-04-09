@@ -1,9 +1,9 @@
 """BM25 关键词索引器
 
 轻量级 BM25 实现，用于关键词搜索路，与向量搜索互补。
-不依赖外部库，纯 Python 实现。
 
-v0.6.2: pickle 持久化 — 增量更新后自动 dump，重启秒加载。
+v0.7: jieba 分词 + 自定义词典 + 停用词过滤
+v0.6.2: pickle 持久化
 """
 
 import math
@@ -16,32 +16,9 @@ from typing import List, Dict
 
 import yaml
 
+from retrieval.tokenizer import tokenize
+
 logger = logging.getLogger(__name__)
-
-
-def tokenize(text: str) -> List[str]:
-    """中英文混合分词 - 简单但有效
-
-    策略：
-    1. 英文按空格/标点分词
-    2. 中文按字/双字滑窗（模拟 bigram，提升中文召回）
-    3. 全部小写
-    """
-    # 提取英文单词
-    en_words = re.findall(r'[a-zA-Z][a-zA-Z0-9_]+', text)
-    en_words = [w.lower() for w in en_words if len(w) > 1]
-
-    # 提取中文字符
-    cn_chars = re.findall(r'[\u4e00-\u9fff]', text)
-
-    # 中文 bigram
-    cn_bigrams = []
-    for i in range(len(cn_chars) - 1):
-        cn_bigrams.append(cn_chars[i] + cn_chars[i + 1])
-
-    # 合并：单字 + bigram + 英文
-    tokens = cn_chars + cn_bigrams + en_words
-    return tokens
 
 
 class BM25Index:
