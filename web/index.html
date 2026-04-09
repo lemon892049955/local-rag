@@ -174,12 +174,6 @@
                 <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:hsla(210,65%,78%,0.5)"></span> 少</span>
                 <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:hsla(240,80%,55%,0.8)"></span><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:hsla(270,90%,45%,1)"></span> 多</span>
                 <span class="flex items-center gap-1"><span class="w-4 inline-block" style="height:0;border-top:1px dashed #94a3b8"></span> 关联</span>
-                <span class="text-gray-300">|</span>
-                <span class="flex items-center gap-1.5">
-                    <span class="text-gray-500">频次≥</span>
-                    <input type="range" min="1" :max="Math.max(10,wikiGraphData?Math.max(...wikiGraphData.nodes.map(n=>n.count)):10)" x-model.number="graphMinCount" @input="renderWikiGraph()" class="w-16 h-1 accent-blue-500 cursor-pointer" style="vertical-align:middle">
-                    <span class="text-gray-600 font-medium w-4 text-center" x-text="graphMinCount"></span>
-                </span>
                 <button @click="showPanel=!showPanel" class="ml-1 px-2 py-0.5 rounded bg-gray-100 hover:bg-gray-200 text-gray-500 text-[11px] transition">
                     <span x-text="showPanel?'⟩':'⟨'"></span>
                 </button>
@@ -194,6 +188,19 @@
                      :style="`left:${wikiTooltipX}px;top:${wikiTooltipY}px`">
                     <div class="font-medium text-sm text-gray-900 dark:text-gray-100" x-text="wikiHoveredNode?.label"></div>
                     <div class="text-[11px] text-gray-500 mt-1" x-text="(wikiHoveredNode?.count||0)+' 篇关联文章'"></div>
+                </div>
+                <!-- 右下角频次过滤控件 -->
+                <div class="absolute bottom-4 right-4 z-10 bg-white/95 backdrop-blur rounded-xl shadow-md border border-gray-200/80 px-4 py-3" style="min-width:180px">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-[11px] font-medium text-gray-600">频次过滤</span>
+                        <span class="text-xs font-semibold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded" x-text="'≥'+graphMinCount"></span>
+                    </div>
+                    <input type="range" min="1" :max="Math.max(5,wikiGraphData?Math.max(...wikiGraphData.nodes.map(n=>n.count)):5)" x-model.number="graphMinCount" @input="renderWikiGraph()"
+                           class="w-full h-1.5 rounded-full appearance-none cursor-pointer accent-blue-500 bg-gray-200">
+                    <div class="flex justify-between mt-1 text-[9px] text-gray-400">
+                        <span>1 (全部)</span>
+                        <span x-text="wikiGraphData?Math.max(...wikiGraphData.nodes.map(n=>n.count)):''"></span>
+                    </div>
                 </div>
             </div>
             <!-- 右侧面板 (合并) -->
