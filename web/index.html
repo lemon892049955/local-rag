@@ -93,8 +93,8 @@
             <svg class="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
         </div>
         <div x-show="!sidebarCollapsed" class="overflow-hidden">
-            <div class="font-bold text-gray-800 text-sm leading-tight">Local RAG</div>
-            <div class="text-[10px] text-gray-400">个人知识库</div>
+            <div class="font-bold text-gray-800 text-sm leading-tight">个人知识库</div>
+            <div class="text-[10px] text-gray-400">Local RAG</div>
         </div>
     </div>
 
@@ -122,17 +122,14 @@
             </template>
         </div>
         <div x-show="!sidebarCollapsed">
-            <div class="px-3 mb-1 flex items-center justify-between">
-                <span class="text-[10px] font-semibold text-gray-400 uppercase tracking-widest">热门标签</span>
-                <button @click="activeCategory='';filteredList=knowledgeList;page='index'" x-show="activeCategory" class="text-[10px] text-brand-500 hover:text-brand-700">清除</button>
-            </div>
-            <template x-for="tag in tagStats.slice(0,15)" :key="tag.name">
-                <div @click="searchByTag(tag.name)" class="sidebar-item rounded-lg px-3 py-1.5 text-xs flex items-center justify-between cursor-pointer" :class="activeCategory===tag.name&&'active'">
+            <div class="px-3 mb-1 text-[10px] font-semibold text-gray-400 uppercase tracking-widest">Wiki 页面</div>
+            <template x-for="wp in wikiPages" :key="wp.path">
+                <div @click="openWikiDetail(wp)" class="sidebar-item rounded-lg px-3 py-1.5 text-xs flex items-center justify-between cursor-pointer">
                     <span class="flex items-center gap-2 truncate">
-                        <span class="w-2 h-2 rounded-full flex-shrink-0" :style="'background:'+tagDotColor(tag.name)"></span>
-                        <span x-text="tag.name" class="truncate"></span>
+                        <span class="w-2 h-2 rounded-full flex-shrink-0" :class="wp.type==='topic'?'bg-brand-400':wp.type==='entitie'?'bg-emerald-400':'bg-amber-400'"></span>
+                        <span x-text="wp.title" class="truncate"></span>
                     </span>
-                    <span class="text-[10px] bg-gray-100 text-gray-500 rounded-full px-1.5 py-0.5 flex-shrink-0" x-text="tag.count"></span>
+                    <span class="text-[9px] text-gray-300 flex-shrink-0" x-text="(wp.sources||[]).length"></span>
                 </div>
             </template>
         </div>
@@ -205,22 +202,6 @@
                         <button @click="wikiLogContent=''" class="text-gray-400 hover:text-gray-600 text-[10px]">关闭</button>
                     </div>
                     <div class="prose text-[11px] max-h-40 overflow-y-auto" x-html="renderMd(wikiLogContent)"></div>
-                </div>
-                <!-- Wiki 页面列表 -->
-                <div class="p-3 border-b border-gray-50">
-                    <div class="text-[10px] font-semibold text-gray-400 uppercase tracking-widest mb-2">Wiki 页面</div>
-                    <div class="space-y-1">
-                        <template x-for="wp in wikiPages" :key="wp.path">
-                            <div class="rounded-lg px-2 py-1.5 cursor-pointer hover:bg-gray-50 transition group" @click="openWikiDetail(wp)">
-                                <div class="flex items-center gap-1.5">
-                                    <span class="w-2 h-2 rounded-full flex-shrink-0"
-                                          :class="wp.type==='topic'?'bg-brand-400':wp.type==='entitie'?'bg-emerald-400':'bg-amber-400'"></span>
-                                    <span class="text-[11px] font-medium text-gray-700 group-hover:text-brand-600 truncate" x-text="wp.title"></span>
-                                    <span class="text-[9px] text-gray-300 flex-shrink-0 ml-auto" x-text="(wp.sources||[]).length"></span>
-                                </div>
-                            </div>
-                        </template>
-                    </div>
                 </div>
                 <!-- 选中标签的文章列表 -->
                 <div x-show="selectedTagNode" x-cloak class="p-3 border-b border-gray-50 fade-in">
