@@ -7,12 +7,18 @@ v0.7: RRF 粗排后，用 Cross-Encoder 对 (query, chunk) pair 做精排。
 """
 
 import logging
+import os
 from typing import List, Dict
 
 logger = logging.getLogger(__name__)
 
 # 默认 Reranker 模型
 RERANKER_MODEL = "BAAI/bge-reranker-v2-m3"
+# ModelScope 下载的本地缓存路径
+RERANKER_LOCAL_PATH = os.path.join(
+    os.environ.get("SENTENCE_TRANSFORMERS_HOME", "vectordb/models"),
+    "BAAI/bge-reranker-v2-m3"
+)
 
 
 class Reranker:
@@ -24,13 +30,19 @@ class Reranker:
 
     @property
     def model(self):
-        """延迟加载 Cross-Encoder 模型"""
+        """延迟加载 Cross-Encoder 模型（优先本地缓存）"""
         if self._model is None:
             try:
                 from sentence_transformers import CrossEncoder
-                logger.info(f"加载 Reranker 模型: {self._model_name}")
-                self._model = CrossEncoder(self._model_name)
-                logger.info(f"Reranker 模型加载完成: {self._model_name}")
+                # 优先从本地缓存加载，避免联网
+                load_path = self._model_name
+                if os.path.exists(RERANKER_LOCAL_PATH):
+                    load_path = RERANKER_LOCAL_PATH
+                    logger.info(f"从本地加载 Reranker: {load_path}")
+                else:
+                    logger.info(f"从网络加载 Reranker: {load_path}")
+                self._model = CrossEncoder(load_path)
+                logger.info(f"Reranker 模型加载完成")
             except Exception as e:
                 logger.error(f"Reranker 模型加载失败: {e}")
                 self._model = None

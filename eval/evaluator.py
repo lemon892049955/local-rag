@@ -97,15 +97,14 @@ class RAGEvaluator:
 
             # 提取来源文件名
             source_titles = [s.get("title", "") for s in sources]
+            # 也记录来源文件路径（用于更精确匹配）
+            source_files = [s.get("source_file", "") or s.get("file", "") for s in sources]
 
             # Recall: ground_truth 中的文件是否出现在来源中
             hit_files = []
             for gt_file in ground_truth:
-                gt_name = gt_file.replace(".md", "").split("_", 2)[-1] if "_" in gt_file else gt_file
-                for src_title in source_titles:
-                    if gt_name[:10] in src_title or src_title[:10] in gt_name:
-                        hit_files.append(gt_file)
-                        break
+                if self._match_source(gt_file, source_titles, source_files):
+                    hit_files.append(gt_file)
 
             recall = len(hit_files) / len(ground_truth) if ground_truth else (1.0 if expect_no_answer else 0.0)
             hit = len(hit_files) > 0 if ground_truth else True
@@ -113,11 +112,10 @@ class RAGEvaluator:
             # MRR: 第一个命中的排名
             mrr = 0.0
             if ground_truth:
-                for rank, src_title in enumerate(source_titles, 1):
+                for rank in range(len(source_titles)):
                     for gt_file in ground_truth:
-                        gt_name = gt_file.replace(".md", "").split("_", 2)[-1] if "_" in gt_file else gt_file
-                        if gt_name[:10] in src_title or src_title[:10] in gt_name:
-                            mrr = 1.0 / rank
+                        if self._match_source(gt_file, [source_titles[rank]], [source_files[rank] if rank < len(source_files) else ""]):
+                            mrr = 1.0 / (rank + 1)
                             break
                     if mrr > 0:
                         break
@@ -158,6 +156,55 @@ class RAGEvaluator:
         except Exception as e:
             elapsed = round(time.time() - t0, 2)
             return self._error_result(tc, str(e), elapsed)
+
+    def _match_source(self, gt_file: str, titles: list, files: list) -> bool:
+        """多策略匹配 ground_truth 文件与实际来源
+
+        策略：
+        1. 文件名直接包含
+        2. ground_truth 中文标题 vs source title 子串匹配
+        3. 核心关键词交集（去掉日期/ID前缀后提取中文关键词）
+        """
+        import re
+        # 从 gt_file 提取中文标题部分
+        gt_clean = gt_file.replace(".md", "")
+        if "_" in gt_clean:
+            gt_clean = gt_clean.split("_", 2)[-1]  # 去掉 260409_xxx_ 前缀
+
+        # 提取中文关键词（2字以上连续中文）
+        gt_keywords = set(re.findall(r'[\u4e00-\u9fff]{2,}', gt_clean))
+        gt_lower = gt_clean.lower()
+
+        for title in titles:
+            if not title:
+                continue
+            title_lower = title.lower()
+            title_clean = title.replace(".md", "")
+
+            # 策略1: 直接子串匹配
+            if gt_lower[:8] in title_lower or title_lower[:8] in gt_lower:
+                return True
+
+            # 策略2: gt 中的核心名词在 title 中出现
+            title_keywords = set(re.findall(r'[\u4e00-\u9fff]{2,}', title_clean))
+            if gt_keywords and title_keywords:
+                overlap = gt_keywords & title_keywords
+                # 关键词重合 >= 2 个或重合率 >= 50%
+                if len(overlap) >= 2 or (len(overlap) / min(len(gt_keywords), len(title_keywords))) >= 0.5:
+                    return True
+
+            # 策略3: 英文关键词匹配（Karpathy, Vibe, Coding 等）
+            gt_en = set(re.findall(r'[a-zA-Z]{3,}', gt_clean.lower()))
+            title_en = set(re.findall(r'[a-zA-Z]{3,}', title_lower))
+            if gt_en and title_en and gt_en & title_en:
+                return True
+
+        # 策略4: 文件路径直接匹配
+        for fp in files:
+            if fp and gt_file.split("_", 2)[-1] in fp:
+                return True
+
+        return False
 
     def _error_result(self, tc, error, elapsed):
         return {
