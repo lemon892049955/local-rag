@@ -1,0 +1,53 @@
+# 由编译引擎自动维护，请勿手动编辑
+# 上次更新: 2026-04-10 12:14
+version: 1
+categories:
+  企业与产品:
+    description: ''
+    pages:
+    - entities/霸王茶姬.md
+    - topics/2026年AI领域三大关键趋势.md
+    - topics/Karpathy的AI个人知识库构建指南.md
+    - topics/2026年AI新产品评测.md
+    - topics/2026年AI硬件市场趋势.md
+    children:
+      开源项目:
+        pages:
+        - topics/Github开源项目动态.md
+        - topics/同事skill项目及其Agent_Skills架构.md
+        - topics/2026年AI技术趋势全貌.md
+        - topics/2026年创业与投资新趋势.md
+        - topics/AI技术革命与产业融合.md
+        - topics/AI_Agent技术架构与应用场景.md
+        - entities/Claude_Code.md
+        - topics/AI真人漫改剧市场分析.md
+      AI技术与应用:
+        pages:
+        - topics/2026年AI工作流革命.md
+        - topics/梁宁的商业思考与产品经理自我成长.md
+        - topics/AI技术与应用新动态.md
+        - topics/AI仿真人短剧角色设计.md
+        - topics/2026年中国AI企业全产业链盘点.md
+        - topics/Harness架构下Agent研发.md
+        - topics/AI产品经理的焦虑与挑战.md
+        - topics/AI时代产品经理的核心能力重塑.md
+        - topics/阿里AI模型HappyHorse与字节Seedance2.0竞争.md
+  市场趋势:
+    description: ''
+    pages:
+    - topics/2026年消费文娱与低空经济趋势.md
+    - topics/2026-2035年择业趋势分析.md
+    - topics/2026年高薪转行指南.md
+    - topics/2026年AI与数据科学五大趋势.md
+    - topics/2026年AI产业趋势.md
+    - topics/2026年心理学领域的九大趋势.md
+    - topics/2026年中国商业趋势.md
+    children: {}
+  AI技术与应用:
+    description: ''
+    pages:
+    - topics/利用LLM构建个人知识库的模式.md
+    - topics/AI时代产品经理的新实践.md
+    - topics/AI时代文科生就业前景.md
+    - topics/AI技术变革与社会影响.md
+    children: {}

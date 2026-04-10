@@ -382,6 +382,26 @@
             </div>
 
             <!-- 结果展示 -->
+            <!-- 进度条 -->
+            <div x-show="ingestLoading && ingestStages.length" class="bg-white rounded-xl border border-gray-100 p-4 mb-4">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-xs font-medium text-gray-700">入库进度</span>
+                    <span class="text-xs text-gray-400" x-text="ingestProgress+'%'"></span>
+                </div>
+                <div class="w-full bg-gray-100 rounded-full h-2 mb-3">
+                    <div class="bg-brand-500 h-2 rounded-full transition-all duration-500" :style="'width:'+ingestProgress+'%'"></div>
+                </div>
+                <div class="space-y-1.5">
+                    <template x-for="(s,i) in ingestStages" :key="i">
+                        <div class="flex items-center gap-2 text-xs">
+                            <span x-show="s.status==='running'" class="spinner" style="width:12px;height:12px;border-width:2px"></span>
+                            <span x-show="s.status==='ok'||s.status==='skip'||s.status==='queued'||s.status==='duplicate'" class="text-green-500">✓</span>
+                            <span x-show="s.status==='error'" class="text-red-500">✗</span>
+                            <span class="text-gray-600" x-text="s.message"></span>
+                        </div>
+                    </template>
+                </div>
+            </div>
             <div x-show="ingestResult" class="bg-white rounded-xl border p-4 text-sm" :class="ingestResult?.success?'border-green-200 bg-green-50':'border-red-200 bg-red-50'">
                 <div class="font-medium" x-text="ingestResult?.success?'✅ 入库成功':'❌ 失败'"></div>
                 <div class="text-xs mt-1 text-gray-600" x-text="ingestResult?.title?'标题: '+ingestResult.title:ingestResult?.error||''"></div>
@@ -786,7 +806,7 @@ function app(){
         tagStats:[],timeline:[],
         detailData:null,detailLoading:false,editMode:false,editContent:'',editSaving:false,
         hoveredNode:null,tooltipX:0,tooltipY:0,
-        ingestUrl:'',ingestLoading:false,ingestResult:null,
+        ingestUrl:'',ingestLoading:false,ingestResult:null,ingestStages:[],ingestProgress:0,
         uploadLoading:false,uploadStatus:'',
         searchQuery:'',searchLoading:false,searchResult:null,
         quickSearch:'',simulation:null,
@@ -938,13 +958,34 @@ function app(){
         async saveEdit(){if(!this.editContent.trim()||this.editSaving)return;this.editSaving=true;try{const fn=this.detailData?.filename;const r=await fetch('/api/knowledge/'+encodeURIComponent(fn),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:this.editContent})});if(r.ok){this.detailData.content=this.editContent;this.editMode=false}}catch(e){}this.editSaving=false},
         formatSourceTitle(fn){return fn.replace(/^\d{6}_[a-zA-Z0-9]+_/,'').replace(/\.md$/,'').replace(/_/g,' ')},
         guessPlatform(fn){if(fn.includes('公众号')||fn.includes('wechat'))return'wechat';if(fn.includes('小红书')||fn.includes('xiaohongshu'))return'xiaohongshu';return'general'},
-        async doIngest(){if(!this.ingestUrl.trim()||this.ingestLoading)return;this.ingestLoading=true;this.ingestResult=null;try{
-            // 从粘贴文本中提取 URL（支持小红书/公众号分享文本）
+        async doIngest(){if(!this.ingestUrl.trim()||this.ingestLoading)return;this.ingestLoading=true;this.ingestResult=null;this.ingestStages=[];this.ingestProgress=0;try{
             let url=this.ingestUrl.trim();
             const urlMatch=url.match(/https?:\/\/[^\s<>"'，。！？、）\]】}]+/);
             if(urlMatch)url=urlMatch[0].replace(/[.,;:!?)}\]>]+$/,'');
             if(!url.startsWith('http')){this.ingestResult={success:false,error:'未找到有效链接，请粘贴包含 http:// 或 https:// 的链接'};this.ingestLoading=false;return}
-            const r=await fetch('/ingest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:url})});if(r.ok){this.ingestResult=await r.json();this.ingestUrl='';await Promise.all([this.loadKnowledge(),this.loadStats(),this.loadCategories(),this.loadTags(),this.loadTimeline(),this.loadWikiPages(),this.loadWikiTree(),this.loadWikiGraph()])}else{const e=await r.json();this.ingestResult={success:false,error:e.detail||'失败'}}}catch(e){this.ingestResult={success:false,error:e.message}}this.ingestLoading=false},
+            const resp=await fetch('/ingest/stream',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:url})});
+            const reader=resp.body.getReader();const decoder=new TextDecoder();let buffer='';
+            while(true){
+                const{done,value}=await reader.read();if(done)break;
+                buffer+=decoder.decode(value,{stream:true});const lines=buffer.split('\n');buffer=lines.pop();
+                for(const line of lines){
+                    if(!line.startsWith('data: '))continue;
+                    try{
+                        const data=JSON.parse(line.slice(6));
+                        if(data.stage==='result'){
+                            this.ingestResult=data.result||{success:data.status==='ok'};
+                            if(this.ingestResult.success){this.ingestUrl='';await Promise.all([this.loadKnowledge(),this.loadStats(),this.loadCategories(),this.loadTags(),this.loadTimeline(),this.loadWikiPages(),this.loadWikiTree(),this.loadWikiGraph()])}
+                        }else if(data.stage&&data.stage!=='done'){
+                            this.ingestProgress=data.progress||0;
+                            const existing=this.ingestStages.findIndex(s=>s.stage===data.stage);
+                            if(existing>=0){this.ingestStages[existing]={...data}}else{this.ingestStages.push({...data})}
+                        }else if(data.stage==='done'){
+                            this.ingestProgress=100;
+                        }
+                    }catch(e){}
+                }
+            }
+        }catch(e){this.ingestResult={success:false,error:e.message}}this.ingestLoading=false},
         async doSearch(){if(!this.searchQuery.trim()||this.searchLoading)return;this.searchLoading=true;this.searchResult=null;try{const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),60000);const r=await fetch('/search',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:this.searchQuery.trim(),top_k:3}),signal:controller.signal});clearTimeout(timer);if(r.ok){this.searchResult=await r.json()}else{const e=await r.json().catch(()=>({detail:'服务器错误'}));this.searchResult={answer:'搜索失败: '+(e.detail||'未知错误'),sources:[]}}}catch(e){this.searchResult={answer:e.name==='AbortError'?'搜索超时，请稍后重试（LLM 响应较慢时可能需要等待更久）':'搜索失败: '+e.message,sources:[]}}this.searchLoading=false},
 
         // 文件上传

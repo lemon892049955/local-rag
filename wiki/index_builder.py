@@ -96,23 +96,85 @@ def append_log(action: str, source: str, details: list[str]):
 
 
 def build_lightweight_summary() -> str:
-    """为 LLM 编译决策生成轻量摘要（替代读取完整 _index.md）
+    """为 LLM 编译决策生成带分类的丰富摘要
 
-    返回页面名列表 + 一句话描述，供 LLM 编译时了解现有 Wiki 状态。
+    v0.5 改造：从硬编码关键词聚类改为读取 taxonomy 语义分类结果。
+    当 taxonomy 为空时 fallback 到扁平列表。
     """
-    lines = []
+    from collections import defaultdict
+
+    # 收集所有页面信息
+    all_pages = []
     for subdir in ["topics", "entities", "insights"]:
         dir_path = WIKI_DIR / subdir
         if not dir_path.exists():
             continue
         for md_file in sorted(dir_path.glob("*.md")):
             meta = _read_frontmatter(md_file)
-            title = meta.get("title", md_file.stem) if meta else md_file.stem
-            summary = (meta.get("summary", "") or "")[:60] if meta else ""
-            lines.append(f"- [{subdir}] {title}: {summary}")
+            if meta:
+                all_pages.append({
+                    "path": f"{subdir}/{md_file.name}",
+                    "type": subdir,
+                    "title": meta.get("title", md_file.stem),
+                    "summary": (meta.get("summary", "") or "")[:80],
+                    "tags": meta.get("tags", []),
+                    "sources_count": len(meta.get("sources", [])),
+                })
 
-    if not lines:
+    if not all_pages:
         return "当前 Wiki 为空，没有任何页面。"
 
-    return "当前 Wiki 已有页面:\n" + "\n".join(lines)
+    # 尝试读取 taxonomy 分类
+    taxonomy_path = WIKI_DIR / "_taxonomy.yaml"
+    clusters = defaultdict(list)
+
+    if taxonomy_path.exists():
+        try:
+            taxonomy = yaml.safe_load(taxonomy_path.read_text(encoding="utf-8"))
+            categories = taxonomy.get("categories", {}) if taxonomy else {}
+
+            # 构建 path → category 映射
+            path_to_cat = {}
+            for cat_name, cat_data in categories.items():
+                if isinstance(cat_data, dict):
+                    for p in cat_data.get("pages", []):
+                        path_to_cat[p] = cat_name
+                    for child_name, child_data in (cat_data.get("children") or {}).items():
+                        if isinstance(child_data, dict):
+                            for p in child_data.get("pages", []):
+                                path_to_cat[p] = f"{cat_name}/{child_name}"
+
+            # 按 taxonomy 分组
+            for page in all_pages:
+                cat = path_to_cat.get(page["path"], "未分类")
+                clusters[cat].append(page)
+
+        except Exception:
+            # taxonomy 读取失败，fallback
+            clusters["全部页面"] = all_pages
+    else:
+        clusters["全部页面"] = all_pages
+
+    # 生成输出
+    total = len(all_pages)
+    type_counts = defaultdict(int)
+    for p in all_pages:
+        type_counts[p["type"]] += 1
+
+    lines = [
+        f"当前 Wiki 共 {total} 个页面"
+        f"（{type_counts.get('topics', 0)} 个主题, "
+        f"{type_counts.get('entities', 0)} 个实体, "
+        f"{type_counts.get('insights', 0)} 个洞察），按分类如下：\n"
+    ]
+
+    for cluster_name, pages in sorted(clusters.items(), key=lambda x: -len(x[1])):
+        lines.append(f"【{cluster_name}】({len(pages)} 个页面)")
+        for p in pages:
+            lines.append(
+                f"  - [{p['type']}] {p['title']}: {p['summary'][:50]} (来源:{p['sources_count']}篇)"
+            )
+        lines.append("")
+
+    return "\n".join(lines)
 

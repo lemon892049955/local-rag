@@ -9,11 +9,12 @@
 """
 
 from pathlib import Path
+import json
 import logging
 import re
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, HttpUrl
 from typing import List, Optional
 
@@ -153,6 +154,64 @@ async def ingest(req: IngestRequest):
         title=result.get("title", ""),
         tags=result.get("tags", []),
         message=result.get("message", ""),
+    )
+
+
+@app.post("/ingest/stream")
+async def ingest_stream(req: IngestRequest):
+    """入库接口（SSE 流式） — 分阶段推送进度
+
+    返回 text/event-stream，每个阶段推送一条 JSON 事件：
+    {"stage": "fetch", "status": "running", "message": "...", "progress": 20}
+    """
+    url = req.url.strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="URL 不能为空")
+
+    import asyncio
+
+    # 用 asyncio.Queue 做 SSE 桥接
+    progress_queue: asyncio.Queue = asyncio.Queue()
+
+    async def on_progress(stage: str, status: str, message: str, progress: int):
+        await progress_queue.put({
+            "stage": stage, "status": status,
+            "message": message, "progress": progress,
+        })
+
+    async def event_generator():
+        # 启动入库任务
+        from services.ingest_pipeline import ingest_url
+        task = asyncio.create_task(ingest_url(url, on_progress=on_progress))
+
+        # 持续读取进度事件
+        while True:
+            try:
+                event = await asyncio.wait_for(progress_queue.get(), timeout=120)
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                if event.get("stage") == "done" or event.get("status") == "error":
+                    break
+                if event.get("stage") == "dedup" and event.get("status") == "duplicate":
+                    break
+            except asyncio.TimeoutError:
+                yield f"data: {json.dumps({'stage': 'timeout', 'status': 'error', 'message': '入库超时', 'progress': 0})}\n\n"
+                break
+
+        # 等待任务完成，推送最终结果
+        try:
+            result = await task
+            yield f"data: {json.dumps({'stage': 'result', 'status': 'ok', 'result': result, 'progress': 100}, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'stage': 'result', 'status': 'error', 'message': str(e), 'progress': 0}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 
@@ -324,68 +383,66 @@ async def get_wiki_graph():
 
 @app.get("/api/wiki/tree")
 async def get_wiki_tree():
-    """Wiki 目录树 — 按标签自动聚类
+    """Wiki 目录树 — 优先读 Taxonomy 语义分类，fallback 到标签聚类
 
-    遍历 Wiki 页面的 sources 字段，找到对应文章的标签，
-    用出现频次最高的标签作为该 Wiki 页面的分类文件夹。
+    v0.8: 改为读 _taxonomy.yaml 语义分类结果，确保前端分类与编译时一致。
     """
     from wiki.page_store import list_wiki_pages as _list
-    from collections import Counter
+    from config import WIKI_DIR
+    import yaml
 
     pages = _list()
-    files = get_engine().list_all()
+    if not pages:
+        return {"folders": [], "total_pages": 0}
 
-    # 建立 filename → tags 的映射
-    file_tags = {}
-    for item in files:
-        fp = item.get("file_path", "")
-        fn = fp.split("/")[-1] if fp else ""
-        file_tags[fn] = item.get("tags", [])
+    # 建立 path → page 的映射
+    path_to_page = {p.get("path", ""): p for p in pages}
+    classified_paths = set()
 
-    # 为每个 Wiki 页面计算最佳归属文件夹
-    folders = {}  # folder_name -> [page, ...]
-    uncategorized = []
-
-    for page in pages:
-        sources = page.get("sources", [])
-        # 统计该页面所有来源文章的标签频次
-        tag_counter = Counter()
-        for src in sources:
-            for tag in file_tags.get(src, []):
-                tag_counter[tag] += 1
-
-        # 也考虑页面标题本身包含的关键词
-        page_title = page.get("title", "")
-
-        if tag_counter:
-            # 取频次最高的标签作为分类
-            best_tag = tag_counter.most_common(1)[0][0]
-            folders.setdefault(best_tag, []).append(page)
-        else:
-            uncategorized.append(page)
-
-    # 按文件夹内页面数排序（多的排前面）
-    sorted_folders = sorted(folders.items(), key=lambda x: -len(x[1]))
-
-    # 合并过小的文件夹（只有1个页面的合并到"其他"）
+    # 优先读 taxonomy
+    taxonomy_path = WIKI_DIR / "_taxonomy.yaml"
     result = []
-    other_pages = list(uncategorized)
-    for folder_name, folder_pages in sorted_folders:
-        if len(folder_pages) >= 1:
-            result.append({
-                "name": folder_name,
-                "count": len(folder_pages),
-                "pages": folder_pages,
-            })
-        else:
-            other_pages.extend(folder_pages)
 
-    if other_pages:
+    if taxonomy_path.exists():
+        try:
+            taxonomy = yaml.safe_load(taxonomy_path.read_text(encoding="utf-8"))
+            categories = taxonomy.get("categories", {}) if taxonomy else {}
+
+            for cat_name, cat_data in categories.items():
+                if not isinstance(cat_data, dict):
+                    continue
+                cat_pages = []
+                for p in cat_data.get("pages", []):
+                    if p in path_to_page:
+                        cat_pages.append(path_to_page[p])
+                        classified_paths.add(p)
+                # 子分类的页面也归入父分类展示
+                for child_name, child_data in (cat_data.get("children") or {}).items():
+                    if isinstance(child_data, dict):
+                        for p in child_data.get("pages", []):
+                            if p in path_to_page:
+                                cat_pages.append(path_to_page[p])
+                                classified_paths.add(p)
+                if cat_pages:
+                    result.append({
+                        "name": cat_name,
+                        "count": len(cat_pages),
+                        "pages": cat_pages,
+                    })
+        except Exception:
+            pass
+
+    # 未被 taxonomy 覆盖的页面归入"待分类"
+    uncategorized = [p for p in pages if p.get("path", "") not in classified_paths]
+    if uncategorized:
         result.append({
-            "name": "其他",
-            "count": len(other_pages),
-            "pages": other_pages,
+            "name": "待分类",
+            "count": len(uncategorized),
+            "pages": uncategorized,
         })
+
+    # 按页面数降序
+    result.sort(key=lambda x: -x["count"])
 
     return {"folders": result, "total_pages": len(pages)}
 
