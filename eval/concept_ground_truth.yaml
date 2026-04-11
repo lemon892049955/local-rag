@@ -1,0 +1,281 @@
+# 概念/实体抽取 Ground Truth（人工标注）
+# 用于评测 Wiki 编译引擎的概念抽取和实体识别准确率
+# 标注人：AI 初标 → 用户审核修正
+
+articles:
+  # ===== 1. Karpathy AI个人知识库搭建教程 =====
+  - file: "260407_E79uMfgG_Karpathy_AI个人知识库搭建教程.md"
+    concepts:
+      - "个人知识库"
+      - "RAG"
+      - "Embedding"
+      - "向量检索"
+      - "知识管理"
+    entities:
+      persons: ["Karpathy"]
+      products: []
+      companies: []
+
+  # ===== 2. Vibe Coding实践指南 =====
+  - file: "260407_eBGmEwBA_Vibe_Coding实践指南与AI编程经验总结.md"
+    concepts:
+      - "Vibe Coding"
+      - "AI Pair Programming"
+      - "Prompt Engineering"
+      - "代码生成"
+    entities:
+      persons: ["Karpathy"]
+      products: ["Claude Code", "Cursor"]
+      companies: ["Anthropic"]
+
+  # ===== 3. AI时代产品经理核心能力转变 =====
+  - file: "260407_eDkzJoLA_AI时代产品经理核心能力转变.md"
+    concepts:
+      - "AI产品经理"
+      - "能力模型"
+      - "人机协作"
+      - "需求分析"
+      - "产品思维"
+    entities:
+      persons: []
+      products: []
+      companies: []
+
+  # ===== 4. 十大统计检验方法 =====
+  - file: "260407_eu4Yg6fE_最强总结，十大统计检验方法_！！.md"
+    concepts:
+      - "t检验"
+      - "卡方检验"
+      - "ANOVA"
+      - "A/B测试"
+      - "统计显著性"
+      - "p值"
+    entities:
+      persons: []
+      products: []
+      companies: []
+
+  # ===== 5. 行为痕迹分析 =====
+  - file: "260407_FAZB7xXF_行为痕迹分析取代用户调研，揭示产品设计真相.md"
+    concepts:
+      - "行为痕迹分析"
+      - "用户调研"
+      - "数据驱动设计"
+      - "用户行为数据"
+    entities:
+      persons: []
+      products: []
+      companies: []
+
+  # ===== 6. 用户研究ROI =====
+  - file: "260407_fWFzRtPQ_如何衡量用户研究的ROI（万字长文，独家模型）.md"
+    concepts:
+      - "用户研究ROI"
+      - "研究价值量化"
+      - "投资回报率"
+      - "用户体验度量"
+    entities:
+      persons: []
+      products: []
+      companies: []
+
+  # ===== 7. AI产品数据设计决策 =====
+  - file: "260407_hk8Qe3YY_AI产品成功关键在于产品经理的数据设计决策.md"
+    concepts:
+      - "数据设计"
+      - "AI产品"
+      - "数据飞轮"
+      - "特征工程"
+      - "数据标注"
+    entities:
+      persons: []
+      products: []
+      companies: []
+
+  # ===== 8. AI仿真人短剧角色设计 =====
+  - file: "260407_i4tPVnrT_AI仿真人短剧角色设计核心要点.md"
+    concepts:
+      - "AI仿真人"
+      - "角色设计"
+      - "三视图"
+      - "AI短剧"
+      - "数字人"
+    entities:
+      persons: []
+      products: []
+      companies: []
+
+  # ===== 9. 尼尔森10大交互设计原则 =====
+  - file: "260407_JrhE7gE7_雅各布·尼尔森的10大交互设计原则.md"
+    concepts:
+      - "尼尔森十大原则"
+      - "交互设计"
+      - "可用性启发式"
+      - "用户体验设计"
+    entities:
+      persons: ["雅各布·尼尔森"]
+      products: []
+      companies: ["Nielsen Norman Group"]
+
+  # ===== 10. 张小龙饭否日记 =====
+  - file: "260407_LWQtxQLd_张小龙饭否日记的15点启发.md"
+    concepts:
+      - "产品哲学"
+      - "极简设计"
+      - "用户体验"
+      - "产品直觉"
+    entities:
+      persons: ["张小龙"]
+      products: ["微信"]
+      companies: ["腾讯"]
+
+  # ===== 11. AI时代产品经理新角色 =====
+  - file: "260407_nkAsuaMb_AI时代产品经理的新角色与工作方式.md"
+    concepts:
+      - "AI产品经理"
+      - "Prompt工程"
+      - "AI工作流"
+      - "产品经理转型"
+    entities:
+      persons: []
+      products: []
+      companies: []
+
+  # ===== 12. a16z Big Ideas 2026 =====
+  - file: "260407_UnaVNNpq_a16z《Big_Ideas_2026》报告：未来科技趋势详解.md"
+    concepts:
+      - "科技趋势"
+      - "AI Agent"
+      - "AI基础设施"
+      - "风险投资"
+    entities:
+      persons: []
+      products: []
+      companies: ["a16z", "Andreessen Horowitz"]
+
+  # ===== 13. AI陪伴产品市场调研 =====
+  - file: "260407_Z3gNQvDq_AI陪伴产品市场调研分析.md"
+    concepts:
+      - "AI陪伴"
+      - "情感计算"
+      - "虚拟伴侣"
+      - "用户粘性"
+    entities:
+      persons: []
+      products: ["Character.AI", "Replika"]
+      companies: []
+
+  # ===== 14. Token出海 =====
+  - file: "260408_7Jn6LmtX_Token出海：人工智能时代的超级风口机会.md"
+    concepts:
+      - "Token出海"
+      - "AI出海"
+      - "全球化"
+      - "API经济"
+    entities:
+      persons: []
+      products: []
+      companies: []
+
+  # ===== 15. AI产品经理面试经验 =====
+  - file: "260408_cfWYjaQW_AI产品经理面试经验分享.md"
+    concepts:
+      - "产品经理面试"
+      - "行为面试"
+      - "案例分析"
+      - "AI认知考察"
+    entities:
+      persons: []
+      products: []
+      companies: []
+
+  # ===== 16. Loopit登顶美区 =====
+  - file: "260408_T7U3k56A_国内AI社区Loopit：2个月登顶美区娱乐榜首.md"
+    concepts:
+      - "AI社区"
+      - "产品增长"
+      - "出海策略"
+      - "用户留存"
+    entities:
+      persons: []
+      products: ["Loopit"]
+      companies: []
+
+  # ===== 17. 小红书长文功能 =====
+  - file: "260408_WqYzpcRK_小红书长文功能：产品经理视角分析.md"
+    concepts:
+      - "内容产品设计"
+      - "长文功能"
+      - "内容分发"
+      - "创作者生态"
+    entities:
+      persons: []
+      products: ["小红书"]
+      companies: ["小红书"]
+
+  # ===== 18. Harness Engineering =====
+  - file: "260409_eyqzqMJ5_AI产品学习02Harness_Engineering概念解析.md"
+    concepts:
+      - "Harness Engineering"
+      - "AI系统设计"
+      - "人机协同架构"
+      - "AI约束框架"
+    entities:
+      persons: []
+      products: []
+      companies: []
+
+  # ===== 19. Local RAG项目架构 =====
+  - file: "260409_DOC_ARCH_Local_RAG项目架构与能力详细文档.md"
+    concepts:
+      - "RAG"
+      - "混合检索"
+      - "向量索引"
+      - "BM25"
+      - "Wiki编译"
+    entities:
+      persons: []
+      products: ["Local RAG", "ChromaDB"]
+      companies: []
+
+  # ===== 20. 字节跳动AI产品经理面试 =====
+  - file: "260409_kdyRy2sN_字节跳动AI产品经理面试经验分享.md"
+    concepts:
+      - "产品经理面试"
+      - "AI场景设计"
+      - "产品感"
+      - "数据分析能力"
+    entities:
+      persons: []
+      products: ["豆包"]
+      companies: ["字节跳动"]
+
+# ===== 全库实体汇总 =====
+entities_global:
+  persons:
+    - "Karpathy"          # 文章1,2
+    - "张小龙"             # 文章10
+    - "雅各布·尼尔森"      # 文章9
+    - "梁宁"              # 未在20篇中但在其他文章中
+
+  products:
+    - "微信"              # 文章10
+    - "Claude Code"       # 文章2
+    - "Cursor"            # 文章2
+    - "Loopit"            # 文章16
+    - "小红书"             # 文章17
+    - "Local RAG"         # 文章19
+    - "ChromaDB"          # 文章19
+    - "Character.AI"      # 文章13
+    - "Replika"           # 文章13
+    - "豆包"              # 文章20
+
+  companies:
+    - "字节跳动"           # 文章20
+    - "腾讯"              # 文章10
+    - "a16z"              # 文章12
+    - "Anthropic"         # 文章2
+    - "小红书"             # 文章17
+    - "Nielsen Norman Group"  # 文章9
+    - "智谱"              # 未在20篇中但在其他面试文章中
+    - "阿里巴巴"           # 未在20篇中但在其他面试文章中

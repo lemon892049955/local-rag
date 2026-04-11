@@ -16,7 +16,7 @@ WIKI_DIR = BASE_DIR / "wiki"
 DATA_DIR.mkdir(exist_ok=True)
 VECTORDB_DIR.mkdir(exist_ok=True)
 WIKI_DIR.mkdir(exist_ok=True)
-for _subdir in ["topics", "entities", "insights"]:
+for _subdir in ["topics", "entities", "concepts", "moc"]:
     (WIKI_DIR / _subdir).mkdir(exist_ok=True)
 
 # ===== LLM Provider =====

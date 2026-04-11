@@ -67,72 +67,91 @@ TEST_CASES = [
 ]
 
 
-def run_eval() -> list:
-    """对所有测试用例执行搜索，返回结果列表"""
-    results = []
-    for i, tc in enumerate(TEST_CASES, 1):
-        query = tc["query"]
-        print(f"  [{i}/{len(TEST_CASES)}] {query}...", end=" ", flush=True)
-        t0 = time.time()
+TIMEOUT = 180  # DeepSeek API 较慢，给足时间
 
-        try:
-            r = requests.post(
-                f"{BASE_URL}/search",
-                json={"query": query, "top_k": 3},
-                timeout=60,
-            )
-            elapsed = round(time.time() - t0, 2)
 
-            if r.status_code == 200:
-                data = r.json()
-                answer = data.get("answer", "")
-                sources = data.get("sources", [])
-                debug = data.get("debug", {})
+def _run_single(tc: dict, idx: int, total: int) -> dict:
+    """执行单条测试用例"""
+    query = tc["query"]
+    print(f"  [{idx}/{total}] {query}...", end=" ", flush=True)
+    t0 = time.time()
 
-                # 自动评分: 期望关键词命中率
-                hit_keywords = [kw for kw in tc["expect_keywords"] if kw in answer]
-                keyword_score = len(hit_keywords) / len(tc["expect_keywords"]) if tc["expect_keywords"] else 0
+    try:
+        r = requests.post(
+            f"{BASE_URL}/search",
+            json={"query": query, "top_k": 3},
+            timeout=TIMEOUT,
+        )
+        elapsed = round(time.time() - t0, 2)
 
-                result = {
-                    "query": query,
-                    "category": tc["category"],
-                    "answer": answer,
-                    "answer_len": len(answer),
-                    "sources": [s.get("title", "") for s in sources],
-                    "source_count": len(sources),
-                    "rewritten_queries": debug.get("rewritten_queries", []),
-                    "wiki_candidates": debug.get("wiki_candidates", 0),
-                    "data_candidates": debug.get("data_candidates", 0),
-                    "keyword_score": round(keyword_score, 2),
-                    "hit_keywords": hit_keywords,
-                    "miss_keywords": [kw for kw in tc["expect_keywords"] if kw not in answer],
-                    "latency_s": elapsed,
-                    "error": None,
-                }
-                print(f"✅ {elapsed}s, 关键词 {len(hit_keywords)}/{len(tc['expect_keywords'])}")
-            else:
-                result = {
-                    "query": query, "category": tc["category"],
-                    "error": f"HTTP {r.status_code}: {r.text[:200]}",
-                    "answer": "", "answer_len": 0, "sources": [],
-                    "source_count": 0, "keyword_score": 0,
-                    "hit_keywords": [], "miss_keywords": tc["expect_keywords"],
-                    "latency_s": elapsed, "rewritten_queries": [],
-                    "wiki_candidates": 0, "data_candidates": 0,
-                }
-                print(f"❌ HTTP {r.status_code}")
+        if r.status_code == 200:
+            data = r.json()
+            answer = data.get("answer", "")
+            sources = data.get("sources", [])
+            debug = data.get("debug", {})
 
-        except Exception as e:
+            hit_keywords = [kw for kw in tc["expect_keywords"] if kw in answer]
+            keyword_score = len(hit_keywords) / len(tc["expect_keywords"]) if tc["expect_keywords"] else 0
+
+            result = {
+                "query": query,
+                "category": tc["category"],
+                "answer": answer,
+                "answer_len": len(answer),
+                "sources": [s.get("title", "") for s in sources],
+                "source_count": len(sources),
+                "rewritten_queries": debug.get("rewritten_queries", []),
+                "wiki_candidates": debug.get("wiki_candidates", 0),
+                "data_candidates": debug.get("data_candidates", 0),
+                "keyword_score": round(keyword_score, 2),
+                "hit_keywords": hit_keywords,
+                "miss_keywords": [kw for kw in tc["expect_keywords"] if kw not in answer],
+                "latency_s": elapsed,
+                "error": None,
+            }
+            print(f"✅ {elapsed}s, 关键词 {len(hit_keywords)}/{len(tc['expect_keywords'])}")
+        else:
             result = {
                 "query": query, "category": tc["category"],
-                "error": str(e), "answer": "", "answer_len": 0,
-                "sources": [], "source_count": 0, "keyword_score": 0,
+                "error": f"HTTP {r.status_code}: {r.text[:200]}",
+                "answer": "", "answer_len": 0, "sources": [],
+                "source_count": 0, "keyword_score": 0,
                 "hit_keywords": [], "miss_keywords": tc["expect_keywords"],
-                "latency_s": 0, "rewritten_queries": [],
+                "latency_s": elapsed, "rewritten_queries": [],
                 "wiki_candidates": 0, "data_candidates": 0,
             }
-            print(f"❌ {e}")
+            print(f"❌ HTTP {r.status_code}")
 
+    except Exception as e:
+        result = {
+            "query": query, "category": tc["category"],
+            "error": str(e), "answer": "", "answer_len": 0,
+            "sources": [], "source_count": 0, "keyword_score": 0,
+            "hit_keywords": [], "miss_keywords": tc["expect_keywords"],
+            "latency_s": 0, "rewritten_queries": [],
+            "wiki_candidates": 0, "data_candidates": 0,
+        }
+        print(f"❌ {e}")
+
+    return result
+
+
+def run_eval() -> list:
+    """对所有测试用例执行搜索，先跑第 1 条验证成功再跑剩余"""
+    total = len(TEST_CASES)
+
+    # 先跑第 1 条探测
+    print("  ⏳ 先跑第 1 条验证服务可用性...\n")
+    first = _run_single(TEST_CASES[0], 1, total)
+    if first.get("error"):
+        print(f"\n  🛑 第 1 条失败（{first['error'][:80]}），中止评测。请检查服务状态。")
+        return [first]
+
+    print(f"\n  ✅ 第 1 条成功（{first['latency_s']}s），继续跑剩余 {total - 1} 条...\n")
+    results = [first]
+
+    for i, tc in enumerate(TEST_CASES[1:], 2):
+        result = _run_single(tc, i, total)
         results.append(result)
 
     return results

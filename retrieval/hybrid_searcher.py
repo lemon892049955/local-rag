@@ -1,16 +1,16 @@
-"""混合检索 + RAG 答案生成 (v0.3 Wiki 并行多路召回)
+"""混合检索 + RAG 答案生成 (v2.1)
 
 核心改进：
-1. 查询改写：LLM 将模糊问题分解为检索关键词
-2. 并行多路召回：Wiki(Top-2 宏观结构) + Data(Top-3 微观细节)
-3. RRF 融合排序：Reciprocal Rank Fusion 合并结果
-4. 摘要切片加权：summary chunk 在排序中获得额外加成
-5. 异步回填：高价值答案后台生成 Wiki 洞察页
+1. 查询改写与检索并行：原始 query 先检索，改写完毕后合并
+2. SSE 流式输出：search_stream() 分阶段推送 sources → answer tokens
+3. 意图路由 + 分路加权 + Reranker 精排 + Top3 裁剪
+4. BM25 标题 3x 加权（在 bm25.py 中实现）
 """
 
 import asyncio
+import json
 import logging
-from typing import List, Dict
+from typing import List, Dict, AsyncGenerator
 
 from openai import OpenAI
 from config import get_llm_config, DATA_DIR, WIKI_DIR
@@ -21,6 +21,34 @@ logger = logging.getLogger(__name__)
 
 
 # ===== Prompt =====
+
+# 意图分类（规则优先，LLM fallback）
+INTENT_TYPES = {
+    "detail": "细节查找",      # 具体事实、数据、步骤
+    "precise": "精确查找",     # 明确指定某篇文章/概念
+    "overview": "主题概览",    # 宏观了解某个主题
+    "entity": "实体查询",      # 查人物/公司/产品
+    "fuzzy": "模糊查询",       # 之前看过一篇...、有没有关于...
+    "negative": "否定查询",    # 知识库不可能有的内容
+}
+
+# 分路加权配置：不同意图下各类切片的权重
+INTENT_WEIGHTS = {
+    "detail":  {"data": 2.0, "topics": 1.5, "concepts": 0.5, "entities": 0.5, "moc": 0.2},
+    "precise": {"data": 2.0, "topics": 1.5, "concepts": 0.5, "entities": 0.5, "moc": 0.2},
+    "overview": {"data": 0.8, "topics": 1.5, "concepts": 2.0, "entities": 0.8, "moc": 1.5},
+    "entity":  {"data": 1.0, "topics": 0.5, "concepts": 0.5, "entities": 3.0, "moc": 0.2},
+    "fuzzy":   {"data": 1.5, "topics": 1.5, "concepts": 1.0, "entities": 1.0, "moc": 1.0},
+    "negative": {"data": 1.0, "topics": 1.0, "concepts": 1.0, "entities": 1.0, "moc": 1.0},
+}
+
+# 意图分类规则关键词
+INTENT_RULES = {
+    "negative": ["天气", "炒菜", "炒鸡蛋", "量子计算", "Python 爬虫", "React", "Vue"],
+    "entity": ["张小龙", "Karpathy", "Loopit", "a16z", "字节跳动", "智谱", "腾讯", "阿里"],
+    "fuzzy": ["之前看", "好像有", "有没有关于", "那个讲", "那篇", "相关的"],
+    "overview": ["是什么", "有哪些", "怎么理解", "概念", "原则", "方法"],
+}
 
 REWRITE_PROMPT = """你是一个搜索查询优化器。用户会提出一个自然语言问题，你需要将它改写为 2-3 个精确的检索查询词/短语，用于在知识库中检索。
 
@@ -48,8 +76,14 @@ RAG_SYSTEM_PROMPT = """你是用户的个人知识库助手。你的回答必须
 2. **不编造不延伸**：只使用检索结果中明确存在的事实，不要补充文档中没有的信息，不要推测、延伸或"合理联想"
 3. **抗诱导**：即使用户的问题包含错误前提（如"XXX是不是YYY"），如果文档中的信息与用户前提矛盾，必须以文档为准纠正用户
 4. **标注来源**：回答中标注信息来源，格式为 [来源: 文档标题]
-5. **简洁切题**：直接回答问题，不要长篇大论，不要复述整篇文档
-6. **低关联不强答**：如果检索到的内容与问题关联度低，不要强行关联，直接说"未找到直接相关的内容"
+5. **低关联不强答**：如果检索到的内容与问题关联度低，不要强行关联，直接说"未找到直接相关的内容"
+
+## 回答风格
+
+- **完整但不冗余**：把检索结果中与问题相关的关键信息都覆盖到，不要遗漏重要观点，但也不要复述整篇文档
+- **结构清晰**：如果涉及多个要点，用编号或分段组织，让用户一眼看清
+- **保留关键词**：回答中应自然包含问题和文档中的核心关键词（人名、术语、产品名等），方便用户确认信息准确性
+- **简洁直接**：先给结论，再展开细节。不要用"根据文档..."等冗余开头
 """
 
 RAG_USER_TEMPLATE = """用户问题：{query}
@@ -110,7 +144,7 @@ class HybridSearcher:
         from retrieval.chunker import SemanticChunker
         chunker = SemanticChunker()
         all_chunks = []
-        for subdir in ["topics", "entities", "insights"]:
+        for subdir in ["topics", "entities", "concepts", "moc"]:
             wiki_subdir = WIKI_DIR / subdir
             if not wiki_subdir.exists():
                 continue
@@ -132,102 +166,74 @@ class HybridSearcher:
         self._wiki_bm25_built = True
 
     async def search(self, query: str, top_k: int = 5) -> dict:
-        """完整的混合检索 + RAG 流程 (v0.3 并行多路召回)
+        """v2.1 混合检索 + 意图路由 + 并行改写+检索 + Reranker 精排
 
-        Wiki(Top-2 宏观结构) + Data(Top-3 微观细节) 一起喂 LLM。
-
-        Args:
-            query: 用户自然语言查询
-            top_k: Data 路返回的切片数
-
-        Returns:
-            {"answer": "...", "sources": [...], "debug": {...}}
+        流程：意图分类 → 原始query检索‖查询改写 → 改写query补充检索 → 分路加权 → Reranker → Top3 → LLM
         """
         self._ensure_bm25()
 
-        # 1. 查询改写
-        queries = await self._rewrite_query(query)
-        logger.info(f"查询改写: {query} -> {queries}")
+        # 0. 意图分类
+        intent = self._classify_intent(query)
+        weights = INTENT_WEIGHTS.get(intent, INTENT_WEIGHTS["fuzzy"])
+        logger.info(f"意图分类: {query[:30]} -> {intent}")
 
-        # 2. Data 路召回 (微观细节)
-        data_vector_hits = []
-        for q in queries:
-            hits = self.vector_indexer.search(q, top_k=top_k)
-            data_vector_hits.extend(hits)
+        # 1. 并行：原始 query 检索 + 查询改写（不再串行等待改写完成）
+        original_results_future = asyncio.get_event_loop().run_in_executor(
+            None, self._retrieve_all, query
+        )
+        rewrite_future = self._rewrite_query(query)
 
-        data_bm25_hits = []
-        for q in queries:
-            hits = self.data_bm25.search(q, top_k=top_k)
-            data_bm25_hits.extend(hits)
+        # 等待两者完成
+        original_results, rewritten_queries = await asyncio.gather(
+            original_results_future, rewrite_future
+        )
+        logger.info(f"查询改写: {query} -> {rewritten_queries}")
 
-        data_merged = self._rrf_merge(data_vector_hits, data_bm25_hits, top_k=3)
+        # 2. 用改写后的 query 做补充检索（排除原始 query，避免重复）
+        extra_queries = [q for q in rewritten_queries if q != query]
+        if extra_queries:
+            extra_results = await asyncio.get_event_loop().run_in_executor(
+                None, self._retrieve_extra, extra_queries
+            )
+        else:
+            extra_results = {"data_vector": [], "data_bm25": [], "wiki_vector": [], "wiki_bm25": []}
 
-        # 3. Wiki 路召回 (宏观结构)
-        wiki_merged = []
-        if WIKI_DIR.exists() and self._wiki_bm25_built:
-            wiki_vector_hits = []
-            for q in queries:
-                hits = self.vector_indexer.search(q, top_k=2)
-                # 筛选 wiki 来源的结果
-                wiki_vector_hits.extend([h for h in hits if "wiki" in h.get("source_file", "")])
+        # 合并原始 + 改写的检索结果
+        all_data_vector = original_results["data_vector"] + extra_results["data_vector"]
+        all_data_bm25 = original_results["data_bm25"] + extra_results["data_bm25"]
+        all_wiki_vector = original_results["wiki_vector"] + extra_results["wiki_vector"]
+        all_wiki_bm25 = original_results["wiki_bm25"] + extra_results["wiki_bm25"]
 
-            wiki_bm25_hits = []
-            for q in queries:
-                hits = self.wiki_bm25.search(q, top_k=2)
-                wiki_bm25_hits.extend(hits)
+        data_candidates = self._rrf_merge(all_data_vector, all_data_bm25, top_k=10)
+        wiki_candidates = self._rrf_merge(all_wiki_vector, all_wiki_bm25, top_k=10)
 
-            wiki_merged = self._rrf_merge(wiki_vector_hits, wiki_bm25_hits, top_k=2)
-
-        if not data_merged and not wiki_merged:
+        if not data_candidates and not wiki_candidates:
             return {
                 "answer": "知识库中暂未找到与您问题相关的内容。请尝试换个关键词，或先录入相关内容。",
                 "sources": [],
-                "debug": {"queries": queries, "data_hits": 0, "wiki_hits": 0},
+                "debug": {"rewritten_queries": rewritten_queries, "intent": intent, "data_hits": 0, "wiki_hits": 0},
             }
 
-        # 4. Cross-Encoder Re-ranking 精排
-        all_candidates = data_merged + wiki_merged
-        if len(all_candidates) > 2:
+        # 3. 分路加权 + Reranker + Top3（复用辅助方法）
+        all_candidates = self._apply_intent_weights(data_candidates, wiki_candidates, weights)
+        all_candidates.sort(key=lambda x: -x.get("rrf_score", 0))
+        candidates_for_rerank = all_candidates[:20]
+
+        if len(candidates_for_rerank) > 2:
             try:
-                reranked = self.reranker.rerank(query, all_candidates, top_k=5)
-                data_merged = [c for c in reranked if "wiki" not in c.get("source_file", "")][:3]
-                wiki_merged = [c for c in reranked if "wiki" in c.get("source_file", "")][:2]
-                # 如果 reranker 把所有结果都归到一边，保底
-                if not data_merged and not wiki_merged:
-                    data_merged = reranked[:3]
+                reranked = self.reranker.rerank(query, candidates_for_rerank, top_k=5)
+                candidates_for_rerank = reranked
             except Exception as e:
-                logger.warning(f"Reranker 失败，使用 RRF 排序: {e}")
+                logger.warning(f"Reranker 失败，使用加权排序: {e}")
+                candidates_for_rerank = candidates_for_rerank[:5]
+        else:
+            candidates_for_rerank = candidates_for_rerank[:5]
 
-        # 4. 组装双层 Context
-        wiki_context = "_(Wiki 暂无相关页面)_"
-        if wiki_merged:
-            wiki_parts = []
-            for i, hit in enumerate(wiki_merged, 1):
-                wiki_parts.append(
-                    f"【Wiki 页面 {i}】\n"
-                    f"标题: {hit.get('title', '未知')}\n"
-                    f"内容:\n{hit['text']}\n"
-                )
-            wiki_context = "\n---\n".join(wiki_parts)
+        context_chunks = candidates_for_rerank[:3]
 
-        data_context = "_(原始文章暂无相关片段)_"
-        if data_merged:
-            data_parts = []
-            for i, hit in enumerate(data_merged, 1):
-                data_parts.append(
-                    f"【原始片段 {i}】\n"
-                    f"来源: {hit.get('title', '未知')}\n"
-                    f"章节: {hit.get('section_title', '未知')}\n"
-                    f"内容:\n{hit['text']}\n"
-                )
-            data_context = "\n---\n".join(data_parts)
-
-        # 5. LLM 生成答案
-        prompt = RAG_USER_TEMPLATE.format(
-            query=query,
-            wiki_context=wiki_context,
-            data_context=data_context,
-        )
+        # 4. 构建 Context + LLM 生成答案
+        wiki_context, data_context = self._build_context(context_chunks)
+        prompt = RAG_USER_TEMPLATE.format(query=query, wiki_context=wiki_context, data_context=data_context)
         try:
             response = self.client.chat.completions.create(
                 model=self.model,
@@ -242,30 +248,15 @@ class HybridSearcher:
             answer = response.choices[0].message.content.strip()
         except Exception as e:
             logger.error(f"RAG LLM 调用失败: {type(e).__name__}: {e}")
-            # 降级：直接拼接检索内容作为答案
             fallback_parts = []
-            for hit in (wiki_merged + data_merged)[:3]:
+            for hit in context_chunks[:3]:
                 fallback_parts.append(f"**{hit.get('title', '未知')}**\n{hit['text'][:300]}")
             answer = "LLM 暂时不可用，以下是检索到的相关内容：\n\n" + "\n\n---\n\n".join(fallback_parts) if fallback_parts else f"搜索失败: {e}"
 
-        # 6. 整理来源（去重）
-        all_hits = wiki_merged + data_merged
-        seen_titles = set()
-        sources = []
-        for hit in all_hits:
-            title = hit.get("title", "未知")
-            if title not in seen_titles:
-                seen_titles.add(title)
-                sources.append({
-                    "title": title,
-                    "section": hit.get("section_title", ""),
-                    "distance": round(hit.get("distance", 0), 4),
-                    "rrf_score": round(hit.get("rrf_score", 0), 4),
-                    "source_url": hit.get("source_url", ""),
-                    "match_type": hit.get("match_type", ""),
-                })
+        # 5. 整理来源
+        sources = self._build_sources(candidates_for_rerank)
 
-        # 7. 异步回填判定（不阻塞返回）
+        # 6. 异步回填判定（不阻塞返回）
         if len(sources) >= 3 and len(answer) > 500:
             try:
                 asyncio.get_event_loop().create_task(
@@ -274,16 +265,94 @@ class HybridSearcher:
             except Exception:
                 pass
 
+        # 9. 输出缓存 — 高质量回答落文件
+        try:
+            self._cache_answer(query, answer, sources)
+        except Exception:
+            pass
+
         return {
             "answer": answer,
             "sources": sources,
             "debug": {
                 "original_query": query,
-                "rewritten_queries": queries,
-                "wiki_candidates": len(wiki_merged),
-                "data_candidates": len(data_merged),
+                "intent": intent,
+                "rewritten_queries": rewritten_queries,
+                "total_candidates": len(all_candidates),
+                "reranked_top5": len(candidates_for_rerank),
+                "context_chunks": len(context_chunks),
             },
         }
+
+    def _classify_intent(self, query: str) -> str:
+        """轻量级意图分类（规则优先，零 LLM 调用）
+
+        Returns:
+            intent type: detail/precise/overview/entity/fuzzy/negative
+        """
+        q = query.lower()
+
+        # 规则匹配（优先级从高到低）
+        for intent, keywords in INTENT_RULES.items():
+            for kw in keywords:
+                if kw.lower() in q:
+                    return intent
+
+        # 精确查找：包含具体文章/版本/文件名
+        if any(kw in q for kw in ["v0.", "v1.", "版本", "那篇", "文章说", "文章提到"]):
+            return "precise"
+
+        # 细节查找：问具体事实/步骤/数据
+        if any(kw in q for kw in ["怎么做", "具体", "步骤", "流程", "几个", "几层", "几分", "多少", "区别", "对比"]):
+            return "detail"
+
+        # 主题概览
+        if any(kw in q for kw in ["是什么", "有哪些", "怎么理解", "什么意思", "概念", "原则", "核心"]):
+            return "overview"
+
+        # 默认：细节查找（保守策略，优先正文）
+        return "detail"
+
+    def _cache_answer(self, query: str, answer: str, sources: list):
+        """高质量回答缓存到 outputs/qa/ — 复利积累"""
+        # 只缓存有来源、有实质内容的回答
+        if not sources or len(answer) < 100:
+            return
+        if "知识库中暂未找到" in answer or "LLM 暂时不可用" in answer:
+            return
+
+        import hashlib
+        from config import BASE_DIR
+        from datetime import datetime
+
+        qa_dir = BASE_DIR / "outputs" / "qa"
+        qa_dir.mkdir(parents=True, exist_ok=True)
+
+        # 用 query hash 做文件名
+        qhash = hashlib.md5(query.encode()).hexdigest()[:8]
+        date = datetime.now().strftime("%Y%m%d")
+        filepath = qa_dir / f"{date}_{qhash}.md"
+
+        # 不覆盖已有缓存
+        if filepath.exists():
+            return
+
+        source_list = "\n".join(f"  - {s.get('title', '未知')}" for s in sources[:5])
+        content = f"""---
+query: '{query}'
+cached_at: '{datetime.now().strftime("%Y-%m-%d %H:%M")}'
+sources_count: {len(sources)}
+---
+
+# Q: {query}
+
+{answer}
+
+## 来源
+{source_list}
+"""
+        filepath.write_text(content, encoding="utf-8")
+        logger.info(f"答案缓存: {filepath.name}")
 
     async def _maybe_backfill(self, query: str, answer: str, sources: list):
         """异步回填：高价值答案生成 Wiki 洞察页（后台执行，不阻塞查询）"""
@@ -304,6 +373,195 @@ class HybridSearcher:
             append_log("QUERY_BACKFILL_CANDIDATE", query[:50], [f"答案长度: {len(answer)}", f"来源数: {len(sources)}"])
         except Exception:
             pass
+
+    def _retrieve_all(self, query: str) -> dict:
+        """对单个 query 执行全部检索路（同步，供线程池调用）"""
+        data_vector = [h for h in self.vector_indexer.search(query, top_k=10)
+                       if "wiki" not in h.get("source_file", "")]
+        data_bm25 = self.data_bm25.search(query, top_k=10)
+        wiki_vector = [h for h in self.vector_indexer.search(query, top_k=10)
+                       if "wiki" in h.get("source_file", "")]
+        wiki_bm25 = self.wiki_bm25.search(query, top_k=10) if self._wiki_bm25_built else []
+        return {"data_vector": data_vector, "data_bm25": data_bm25,
+                "wiki_vector": wiki_vector, "wiki_bm25": wiki_bm25}
+
+    def _retrieve_extra(self, queries: List[str]) -> dict:
+        """对额外改写 queries 执行检索（同步，供线程池调用）"""
+        result = {"data_vector": [], "data_bm25": [], "wiki_vector": [], "wiki_bm25": []}
+        for q in queries:
+            r = self._retrieve_all(q)
+            for k in result:
+                result[k].extend(r[k])
+        return result
+
+    def _build_context(self, context_chunks: list) -> tuple:
+        """从 Top3 切片构建 wiki_context 和 data_context"""
+        wiki_parts = []
+        data_parts = []
+        for hit in context_chunks:
+            stype = hit.get("source_type", "data")
+            if stype == "data":
+                data_parts.append(
+                    f"【原始片段 {len(data_parts)+1}】\n"
+                    f"来源: {hit.get('title', '未知')}\n"
+                    f"章节: {hit.get('section_title', '未知')}\n"
+                    f"内容:\n{hit['text']}\n"
+                )
+            else:
+                type_label = {"topics": "主题页", "concepts": "概念卡", "entities": "实体页", "moc": "导航页"}.get(stype, "Wiki")
+                wiki_parts.append(
+                    f"【{type_label} {len(wiki_parts)+1}】\n"
+                    f"标题: {hit.get('title', '未知')}\n"
+                    f"内容:\n{hit['text']}\n"
+                )
+        wiki_context = "\n---\n".join(wiki_parts) if wiki_parts else "_(Wiki 暂无相关页面)_"
+        data_context = "\n---\n".join(data_parts) if data_parts else "_(原始文章暂无相关片段)_"
+        return wiki_context, data_context
+
+    def _build_sources(self, candidates: list) -> list:
+        """从候选结果构建去重来源列表"""
+        seen_titles = set()
+        sources = []
+        for hit in candidates[:5]:
+            title = hit.get("title", "未知")
+            if title not in seen_titles:
+                seen_titles.add(title)
+                sources.append({
+                    "title": title,
+                    "section": hit.get("section_title", ""),
+                    "distance": round(hit.get("distance", 0), 4),
+                    "rrf_score": round(hit.get("rrf_score", 0), 4),
+                    "source_url": hit.get("source_url", ""),
+                    "match_type": hit.get("match_type", ""),
+                    "source_type": hit.get("source_type", ""),
+                })
+        return sources
+
+    async def search_stream(self, query: str, top_k: int = 5) -> AsyncGenerator[str, None]:
+        """SSE 流式搜索：分阶段推送 sources → answer tokens
+
+        Yields:
+            SSE 格式的 data 行：
+            - data: {"type": "sources", "sources": [...], "debug": {...}}
+            - data: {"type": "token", "content": "..."}
+            - data: {"type": "done"}
+        """
+        self._ensure_bm25()
+
+        # 0. 意图分类
+        intent = self._classify_intent(query)
+        weights = INTENT_WEIGHTS.get(intent, INTENT_WEIGHTS["fuzzy"])
+
+        # 1. 并行：原始 query 检索 + 查询改写
+        original_results_future = asyncio.get_event_loop().run_in_executor(
+            None, self._retrieve_all, query
+        )
+        rewrite_future = self._rewrite_query(query)
+        original_results, rewritten_queries = await asyncio.gather(
+            original_results_future, rewrite_future
+        )
+
+        # 2. 改写 query 补充检索
+        extra_queries = [q for q in rewritten_queries if q != query]
+        if extra_queries:
+            extra_results = await asyncio.get_event_loop().run_in_executor(
+                None, self._retrieve_extra, extra_queries
+            )
+        else:
+            extra_results = {"data_vector": [], "data_bm25": [], "wiki_vector": [], "wiki_bm25": []}
+
+        # 合并 + RRF
+        data_candidates = self._rrf_merge(
+            original_results["data_vector"] + extra_results["data_vector"],
+            original_results["data_bm25"] + extra_results["data_bm25"], top_k=10)
+        wiki_candidates = self._rrf_merge(
+            original_results["wiki_vector"] + extra_results["wiki_vector"],
+            original_results["wiki_bm25"] + extra_results["wiki_bm25"], top_k=10)
+
+        if not data_candidates and not wiki_candidates:
+            yield f"data: {json.dumps({'type': 'sources', 'sources': [], 'debug': {'intent': intent}}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'token', 'content': '知识库中暂未找到与您问题相关的内容。'}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+            return
+
+        # 3. 分路加权 + Reranker + Top3
+        all_candidates = self._apply_intent_weights(data_candidates, wiki_candidates, weights)
+        all_candidates.sort(key=lambda x: -x.get("rrf_score", 0))
+        candidates_for_rerank = all_candidates[:20]
+
+        if len(candidates_for_rerank) > 2:
+            try:
+                candidates_for_rerank = self.reranker.rerank(query, candidates_for_rerank, top_k=5)
+            except Exception:
+                candidates_for_rerank = candidates_for_rerank[:5]
+        else:
+            candidates_for_rerank = candidates_for_rerank[:5]
+
+        context_chunks = candidates_for_rerank[:3]
+        sources = self._build_sources(candidates_for_rerank)
+
+        # 推送 sources（用户立即看到来源）
+        yield f"data: {json.dumps({'type': 'sources', 'sources': sources, 'debug': {'intent': intent, 'rewritten_queries': rewritten_queries}}, ensure_ascii=False)}\n\n"
+
+        # 4. LLM 流式生成答案
+        wiki_context, data_context = self._build_context(context_chunks)
+        prompt = RAG_USER_TEMPLATE.format(query=query, wiki_context=wiki_context, data_context=data_context)
+
+        try:
+            stream = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": RAG_SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.3,
+                max_tokens=2000,
+                stream=True,
+                timeout=60,
+            )
+            full_answer = ""
+            for chunk in stream:
+                delta = chunk.choices[0].delta
+                if delta.content:
+                    full_answer += delta.content
+                    yield f"data: {json.dumps({'type': 'token', 'content': delta.content}, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            logger.error(f"SSE LLM 流式失败: {e}")
+            yield f"data: {json.dumps({'type': 'token', 'content': f'LLM 暂时不可用: {e}'}, ensure_ascii=False)}\n\n"
+            full_answer = ""
+
+        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
+        # 后台缓存
+        if full_answer:
+            try:
+                self._cache_answer(query, full_answer, sources)
+            except Exception:
+                pass
+
+    def _apply_intent_weights(self, data_candidates: list, wiki_candidates: list, weights: dict) -> list:
+        """对候选列表施加意图权重"""
+        all_candidates = []
+        for c in data_candidates:
+            c = dict(c)
+            c["rrf_score"] = c.get("rrf_score", 0) * weights.get("data", 1.0)
+            c["source_type"] = "data"
+            all_candidates.append(c)
+        for c in wiki_candidates:
+            c = dict(c)
+            source_file = c.get("source_file", "")
+            if "concepts" in source_file:
+                stype = "concepts"
+            elif "entities" in source_file:
+                stype = "entities"
+            elif "moc" in source_file:
+                stype = "moc"
+            else:
+                stype = "topics"
+            c["rrf_score"] = c.get("rrf_score", 0) * weights.get(stype, 1.0)
+            c["source_type"] = stype
+            all_candidates.append(c)
+        return all_candidates
 
     async def _rewrite_query(self, query: str) -> List[str]:
         """用 LLM 改写查询，生成多个检索 query"""

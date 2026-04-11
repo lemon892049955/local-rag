@@ -2,6 +2,7 @@
 
 轻量级 BM25 实现，用于关键词搜索路，与向量搜索互补。
 
+v2.1: 标题 3x 加权（title boost）
 v0.7: jieba 分词 + 自定义词典 + 停用词过滤
 v0.6.2: pickle 持久化
 """
@@ -33,6 +34,7 @@ class BM25Index:
         self.avg_dl = 0         # 平均文档长度
         self.doc_lens = []      # 每个文档的 token 数
         self.n_docs = 0
+        self.title_token_sets = []  # 每个文档 title 的 token 集合
         self._cache_path = None  # pickle 缓存路径
 
     def build_from_chunks(self, chunks: List[Dict]):
@@ -45,6 +47,7 @@ class BM25Index:
         self.n_docs = len(chunks)
         self.doc_freqs = []
         self.doc_lens = []
+        self.title_token_sets = []  # 每个文档 title 的 token 集合（用于 title boost）
 
         # 统计每个文档的词频
         df = Counter()  # 文档频率 (包含某词的文档数)
@@ -53,6 +56,9 @@ class BM25Index:
             freq = Counter(tokens)
             self.doc_freqs.append(freq)
             self.doc_lens.append(len(tokens))
+            # title tokens 缓存
+            title_tokens = set(tokenize(doc.get("title", "")))
+            self.title_token_sets.append(title_tokens)
             # 更新文档频率
             for word in freq:
                 df[word] += 1
@@ -83,16 +89,21 @@ class BM25Index:
             score = 0.0
             dl = self.doc_lens[i]
             freq = self.doc_freqs[i]
+            title_tokens = self.title_token_sets[i] if i < len(self.title_token_sets) else set()
 
             for token in query_tokens:
-                if token not in freq:
-                    continue
-                tf = freq[token]
                 idf = self.idf.get(token, 0)
-                # BM25 公式
-                numerator = tf * (self.k1 + 1)
-                denominator = tf + self.k1 * (1 - self.b + self.b * dl / max(self.avg_dl, 1))
-                score += idf * numerator / denominator
+
+                # 正文 BM25 打分
+                if token in freq:
+                    tf = freq[token]
+                    numerator = tf * (self.k1 + 1)
+                    denominator = tf + self.k1 * (1 - self.b + self.b * dl / max(self.avg_dl, 1))
+                    score += idf * numerator / denominator
+
+                # 标题命中 boost：额外加 3x IDF（即使正文没命中也能加分）
+                if token in title_tokens:
+                    score += idf * 3.0
 
             scores.append((score, i))
 
@@ -151,6 +162,7 @@ class BM25Index:
                 "avg_dl": self.avg_dl,
                 "doc_lens": self.doc_lens,
                 "n_docs": self.n_docs,
+                "title_token_sets": self.title_token_sets,
             }
             with open(self._cache_path, "wb") as f:
                 pickle.dump(cache_data, f)
@@ -185,6 +197,7 @@ class BM25Index:
             self.avg_dl = cache_data["avg_dl"]
             self.doc_lens = cache_data["doc_lens"]
             self.n_docs = cache_data["n_docs"]
+            self.title_token_sets = cache_data.get("title_token_sets", [set() for _ in range(self.n_docs)])
             logger.info(f"BM25 缓存已加载: {self.n_docs} docs")
             return True
 

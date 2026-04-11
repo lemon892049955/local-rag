@@ -38,7 +38,7 @@ def _safe_filename(filename: str) -> str:
 
 def _safe_wiki_path(subdir: str, filename: str) -> str:
     """校验 Wiki 路径安全性"""
-    if subdir not in ("topics", "entities", "insights"):
+    if subdir not in ("topics", "entities", "concepts", "moc"):
         raise HTTPException(status_code=400, detail="非法目录")
     if not filename or "/" in filename or "\\" in filename or ".." in filename:
         raise HTTPException(status_code=400, detail="非法文件名")
@@ -275,6 +275,26 @@ async def search(req: SearchRequest):
         answer=result["answer"],
         sources=result["sources"],
         debug=result.get("debug", {}),
+    )
+
+
+@app.post("/search/stream")
+async def search_stream(req: SearchRequest):
+    """SSE 流式搜索 — 分阶段推送 sources → answer tokens"""
+    if not req.query.strip():
+        raise HTTPException(status_code=400, detail="查询内容不能为空")
+
+    async def event_generator():
+        async for chunk in get_searcher().search_stream(
+            query=req.query,
+            top_k=req.top_k,
+        ):
+            yield chunk
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 

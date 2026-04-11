@@ -63,10 +63,10 @@ CLASSIFY_PROMPT = """你是一个知识分类专家。请根据页面的**语义
 4. **页面类型判断**：
    - topic: 围绕概念/方法论/技术/趋势的知识主题
    - entity: 围绕具体人物/公司/产品/品牌的事实集合
-   - insight: 跨主题的综合对比分析
+   - concept: 行业通用的专业术语/方法论/技术名词的定义卡片
 
 只输出 JSON（不要任何其他文字），格式:
-{{"category": "分类名", "subcategory": "子分类名(可为空字符串)", "suggested_type": "topic|entity|insight", "reason": "一句话原因"}}"""
+{{"category": "分类名", "subcategory": "子分类名(可为空字符串)", "suggested_type": "topic|entity|concept", "reason": "一句话原因"}}"""
 
 
 # ===== 核心函数 =====

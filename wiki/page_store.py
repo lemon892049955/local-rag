@@ -47,8 +47,8 @@ def append_insight(page_path: str, date: str, source_name: str, insight_content:
 
     content = filepath.read_text(encoding="utf-8")
 
-    # 构建追加块
-    append_block = f"\n### {date} | 来源: {source_name}\n\n{insight_content}\n\n[来源: {source_name}]\n"
+    # 构建追加块（洞察内容本身已带逐条来源引用，不再重复添加）
+    append_block = f"\n### {date} | 来源: {source_name}\n\n{insight_content}\n"
 
     # 在 "## 新增洞察" 标记后追加
     marker = "## 新增洞察"
@@ -124,7 +124,7 @@ def add_source_to_frontmatter(page_path: str, source_filename: str):
 def list_wiki_pages() -> list[dict]:
     """列举所有 Wiki 页面的元数据"""
     results = []
-    for subdir in ["topics", "entities", "insights"]:
+    for subdir in ["topics", "entities", "concepts", "moc"]:
         dir_path = WIKI_DIR / subdir
         if not dir_path.exists():
             continue
