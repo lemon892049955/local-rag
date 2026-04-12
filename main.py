@@ -13,6 +13,8 @@ import json
 import logging
 import re
 from fastapi import FastAPI, HTTPException, UploadFile, File
+
+logger = logging.getLogger(__name__)
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, HttpUrl
