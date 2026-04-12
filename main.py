@@ -610,6 +610,81 @@ async def delete_wiki_page(subdir: str, filename: str):
     return {"success": True, "message": f"已删除: {page_path}"}
 
 
+# ===== 概念订阅 =====
+
+@app.get("/api/wiki/subscriptions")
+async def list_subscriptions():
+    """获取概念订阅列表"""
+    from config import WIKI_DIR
+    import yaml
+    sub_file = WIKI_DIR / "_subscriptions.yaml"
+    if not sub_file.exists():
+        return {"concepts": []}
+    data = yaml.safe_load(sub_file.read_text(encoding="utf-8"))
+    return {"concepts": data.get("concepts", []) if data else []}
+
+
+@app.post("/api/wiki/subscriptions")
+async def add_subscription(req: dict):
+    """添加概念订阅 — 后续入库文章涉及该概念时自动关联
+
+    Body: {"name": "概念名", "keywords": ["关键词1", "关键词2"], "description": "概念描述"}
+    keywords 可选，默认用 name 做匹配
+    """
+    name = req.get("name", "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="概念名不能为空")
+
+    from config import WIKI_DIR
+    import yaml
+    sub_file = WIKI_DIR / "_subscriptions.yaml"
+
+    if sub_file.exists():
+        data = yaml.safe_load(sub_file.read_text(encoding="utf-8")) or {}
+    else:
+        data = {}
+
+    concepts = data.setdefault("concepts", [])
+    # 去重
+    if any(c.get("name") == name if isinstance(c, dict) else c == name for c in concepts):
+        return {"success": True, "message": f"「{name}」已存在"}
+
+    entry = {"name": name}
+    keywords = req.get("keywords", [])
+    if keywords:
+        entry["keywords"] = keywords
+    desc = req.get("description", "")
+    if desc:
+        entry["description"] = desc
+
+    concepts.append(entry)
+    yaml_str = yaml.dump(data, default_flow_style=False, allow_unicode=True, sort_keys=False)
+    sub_file.write_text(yaml_str, encoding="utf-8")
+
+    return {"success": True, "message": f"已订阅「{name}」", "total": len(concepts)}
+
+
+@app.delete("/api/wiki/subscriptions/{name}")
+async def remove_subscription(name: str):
+    """取消概念订阅"""
+    from config import WIKI_DIR
+    import yaml
+    sub_file = WIKI_DIR / "_subscriptions.yaml"
+    if not sub_file.exists():
+        raise HTTPException(status_code=404, detail="无订阅记录")
+
+    data = yaml.safe_load(sub_file.read_text(encoding="utf-8")) or {}
+    concepts = data.get("concepts", [])
+    new_concepts = [c for c in concepts if (c.get("name") if isinstance(c, dict) else c) != name]
+    if len(new_concepts) == len(concepts):
+        raise HTTPException(status_code=404, detail=f"未找到订阅: {name}")
+
+    data["concepts"] = new_concepts
+    yaml_str = yaml.dump(data, default_flow_style=False, allow_unicode=True, sort_keys=False)
+    sub_file.write_text(yaml_str, encoding="utf-8")
+    return {"success": True, "message": f"已取消订阅「{name}」"}
+
+
 @app.get("/api/wiki/log")
 async def get_wiki_log():
     """获取 Wiki 操作日志"""

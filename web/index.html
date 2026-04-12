@@ -209,9 +209,31 @@
             <!-- 右侧面板 (合并) -->
             <div x-show="showPanel" x-cloak class="w-64 border-l border-gray-100 bg-white flex-shrink-0 overflow-y-auto transition-all">
                 <!-- 工具按钮 -->
-                <div class="p-3 border-b border-gray-50 flex gap-2">
+                <div class="p-3 border-b border-gray-50 flex gap-2 flex-wrap">
                     <button @click="loadWikiLog()" class="flex-1 text-[10px] text-brand-500 hover:text-brand-700 px-2 py-1.5 rounded-lg bg-brand-50 hover:bg-brand-100 transition text-center">编译日志</button>
                     <button @click="runWikiInspect()" class="flex-1 text-[10px] text-brand-500 hover:text-brand-700 px-2 py-1.5 rounded-lg bg-brand-50 hover:bg-brand-100 transition text-center">健康检查</button>
+                    <button @click="showSubscriptions=!showSubscriptions;if(showSubscriptions)loadSubscriptions()" class="flex-1 text-[10px] text-brand-500 hover:text-brand-700 px-2 py-1.5 rounded-lg bg-brand-50 hover:bg-brand-100 transition text-center">概念订阅</button>
+                </div>
+                <!-- 概念订阅 -->
+                <div x-show="showSubscriptions" x-cloak class="p-3 border-b border-gray-50 fade-in">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-[10px] font-semibold text-gray-400 uppercase">概念订阅</span>
+                        <button @click="showSubscriptions=false" class="text-gray-400 hover:text-gray-600 text-[10px]">关闭</button>
+                    </div>
+                    <p class="text-[10px] text-gray-400 mb-2">添加你关注的概念，后续入库文章涉及时自动关联</p>
+                    <div class="flex gap-1 mb-2">
+                        <input x-model="subConceptName" placeholder="概念名..." class="flex-1 text-[11px] border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-brand-400">
+                        <button @click="addSubscription()" :disabled="!subConceptName.trim()" class="text-[10px] bg-brand-600 text-white px-2 py-1 rounded hover:bg-brand-700 disabled:bg-gray-300">订阅</button>
+                    </div>
+                    <div class="space-y-1 max-h-40 overflow-y-auto">
+                        <template x-for="(sub,i) in subscriptions" :key="i">
+                            <div class="flex items-center justify-between px-2 py-1 rounded bg-gray-50 group">
+                                <span class="text-[11px] text-gray-700" x-text="typeof sub==='string'?sub:sub.name"></span>
+                                <button @click="removeSubscription(typeof sub==='string'?sub:sub.name)" class="text-[10px] text-gray-300 group-hover:text-red-400">&times;</button>
+                            </div>
+                        </template>
+                        <div x-show="!subscriptions.length" class="text-[10px] text-gray-400 py-2 text-center">暂无订阅</div>
+                    </div>
                 </div>
                 <!-- 健康检查 -->
                 <div x-show="wikiInspect" x-cloak class="p-3 border-b border-gray-50 fade-in">
@@ -888,6 +910,7 @@ function app(){
         batchUrls:'',batchLoading:false,batchResult:null,
         feedbackSubmitted:false,
         taxCategories:[],newCatName:'',
+        showSubscriptions:false,subscriptions:[],subConceptName:'',
 
         async init(){
             await Promise.all([this.loadStats(),this.loadCategories(),this.loadKnowledge(),this.loadTags(),this.loadTimeline(),this.loadWikiPages(),this.loadWikiTree(),this.loadWikiGraph()]);
@@ -1178,6 +1201,25 @@ function app(){
             try{
                 await fetch('/api/feedback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:this.searchQuery,answer:this.searchResult?.answer||'',rating})});
                 this.feedbackSubmitted=true;setTimeout(()=>{this.feedbackSubmitted=false},3000);
+            }catch(e){}
+        },
+
+        // 概念订阅
+        async loadSubscriptions(){
+            try{const r=await fetch('/api/wiki/subscriptions');if(r.ok){const d=await r.json();this.subscriptions=d.concepts||[]}}catch(e){}
+        },
+        async addSubscription(){
+            const name=this.subConceptName.trim();
+            if(!name)return;
+            try{
+                const r=await fetch('/api/wiki/subscriptions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});
+                if(r.ok){this.subConceptName='';await this.loadSubscriptions()}
+            }catch(e){}
+        },
+        async removeSubscription(name){
+            try{
+                const r=await fetch('/api/wiki/subscriptions/'+encodeURIComponent(name),{method:'DELETE'});
+                if(r.ok)await this.loadSubscriptions();
             }catch(e){}
         },
     }

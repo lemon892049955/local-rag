@@ -549,6 +549,18 @@ _(后续更新在此追加)_
         except Exception as e:
             logger.warning(f"MOC 重建失败: {e}")
 
+        # Step 5.6: 自动补充交叉引用（降低孤岛率）
+        try:
+            self._enrich_cross_references(new_pages + updated_pages)
+        except Exception as e:
+            logger.warning(f"交叉引用补充失败: {e}")
+
+        # Step 5.7: 概念订阅匹配（用户关注的概念自动关联）
+        try:
+            await self._match_subscribed_concepts(filename, title, body[:3000])
+        except Exception as e:
+            logger.warning(f"概念订阅匹配失败: {e}")
+
         # Step 6: 增量向量索引 (Wiki 页面)
         self._index_affected_pages(new_pages + updated_pages)
 
@@ -717,12 +729,12 @@ _(后续更新在此追加)_
             logger.error(f"生成洞察失败: {e}")
             return ""
 
-    async def _find_similar_pages(self, article_text: str, threshold: float = 0.82) -> list[dict]:
+    async def _find_similar_pages(self, article_text: str, threshold: float = 0.75) -> list[dict]:
         """用 Embedding 检索与新文章高度相似的 Wiki 页面
 
         Args:
             article_text: 文章正文
-            threshold: 相似度阈值（cosine similarity），默认 0.82
+            threshold: 相似度阈值（cosine similarity），默认 0.75（降低以促进更多更新）
 
         Returns:
             [{"path": "topics/xxx.md", "title": "...", "similarity": 0.89, "preview": "..."}]
@@ -837,4 +849,122 @@ _(后续更新在此追加)_
             except json.JSONDecodeError:
                 logger.error(f"JSON 解析失败: {raw[:200]}")
                 return None
+
+    def _enrich_cross_references(self, affected_pages: list[str]):
+        """自动补充交叉引用：扫描所有 Wiki 页面标题，在相关页面间添加 [[]] 链接
+
+        纯代码实现，不调用 LLM。逻辑：
+        - 收集所有 Wiki 页面标题
+        - 对每个受影响的页面，扫描其正文中是否提到了其他页面的标题
+        - 如果提到了，给两个页面互相加 [[]] 引用
+        """
+        all_pages = page_store.list_wiki_pages()
+        # path → title 映射
+        title_to_path = {}
+        path_to_title = {}
+        for p in all_pages:
+            title = p.get("title", "")
+            path = p.get("path", "")
+            if title and path and len(title) >= 2:
+                title_to_path[title] = path
+                path_to_title[path] = title
+
+        added = 0
+        # 对受影响的页面 + 所有页面做双向检查
+        pages_to_scan = set(affected_pages)
+        # 也扫描所有页面（找到引用受影响页面的）
+        for p in all_pages:
+            pages_to_scan.add(p.get("path", ""))
+
+        for scan_path in pages_to_scan:
+            data = page_store.read_page(scan_path)
+            if not data:
+                continue
+            body = data.get("body", "")
+            scan_title = path_to_title.get(scan_path, "")
+
+            for other_title, other_path in title_to_path.items():
+                if other_path == scan_path:
+                    continue
+                # 标题在正文中出现（至少 3 个字的标题才匹配）
+                if len(other_title) >= 3 and other_title in body:
+                    # 检查是否已有引用
+                    ref_marker = f"[[{other_title}]]"
+                    full_content = data.get("full_content", "")
+                    if ref_marker not in full_content:
+                        page_store.append_cross_reference(scan_path, other_title)
+                        added += 1
+                        # 也给对方加反向引用
+                        if scan_title:
+                            page_store.append_cross_reference(other_path, scan_title)
+                            added += 1
+
+        if added:
+            logger.info(f"自动补充交叉引用: {added} 条")
+
+    async def _match_subscribed_concepts(self, filename: str, title: str, body: str):
+        """概念订阅匹配：检查新入库文章是否涉及用户订阅的概念
+
+        如果匹配到订阅概念：
+        1. 在概念页的「新增洞察」中追加来自本文的相关内容
+        2. 将本文添加到概念页的 sources 中
+        """
+        from config import WIKI_DIR
+        sub_file = WIKI_DIR / "_subscriptions.yaml"
+        if not sub_file.exists():
+            return
+
+        import yaml
+        subs = yaml.safe_load(sub_file.read_text(encoding="utf-8"))
+        if not subs or not isinstance(subs, dict):
+            return
+
+        concepts = subs.get("concepts", [])
+        if not concepts:
+            return
+
+        from datetime import datetime
+        today = datetime.now().strftime("%Y-%m-%d")
+        full_text = f"{title} {body}".lower()
+
+        for concept in concepts:
+            name = concept.get("name", "") if isinstance(concept, dict) else str(concept)
+            keywords = concept.get("keywords", [name]) if isinstance(concept, dict) else [name]
+
+            # 检查文章是否提到了这个概念
+            matched = any(kw.lower() in full_text for kw in keywords if kw)
+            if not matched:
+                continue
+
+            # 找到对应的 Wiki 页面
+            concept_path = f"concepts/{name}.md"
+            if not (WIKI_DIR / concept_path).exists():
+                # 概念页不存在，自动创建一个占位页
+                from wiki.compiler import CONCEPT_TEMPLATE
+                content = CONCEPT_TEMPLATE.format(
+                    concept_name=name,
+                    definition=concept.get("description", f"用户关注的概念：{name}"),
+                    today=today,
+                    filename=filename,
+                    context=f"在文章「{title}」中被提及。",
+                )
+                (WIKI_DIR / "concepts").mkdir(parents=True, exist_ok=True)
+                page_store.create_page(concept_path, content)
+                logger.info(f"概念订阅: 自动创建概念页 {concept_path}")
+            else:
+                # 已有概念页，追加来源
+                page_store.add_source_to_frontmatter(concept_path, filename)
+
+                # 生成相关洞察追加
+                existing = page_store.read_page(concept_path)
+                if existing:
+                    insight = await self._generate_insight(
+                        page_title=name,
+                        filename=filename,
+                        article_content=body[:4000],
+                        page_content=existing["body"][:3000],
+                    )
+                    if insight and insight.strip():
+                        page_store.append_insight(concept_path, today, filename, insight)
+                        logger.info(f"概念订阅: {name} ← {filename} (追加洞察)")
 
