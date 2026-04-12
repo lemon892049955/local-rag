@@ -84,7 +84,8 @@ RAG_SYSTEM_PROMPT = """你是用户的个人知识库助手。你的回答必须
 
 - **直接有用**：先回答问题，再补充细节。不要用"根据文档..."等冗余开头
 - **深度提取**：从检索到的文档中尽可能提取具体的事实、数据、步骤、观点，给出有信息量的回答
-- **结构清晰**：涉及多个要点时用编号或分段组织
+- **充分展开**：如果检索结果中有丰富的相关内容，应该充分展开回答，不要过度压缩。宁可回答详细一些，也不要遗漏文档中的重要信息
+- **结构清晰**：涉及多个要点时用编号或分段组织，善用二级标题分块
 - **保留关键词**：自然包含核心关键词（人名、术语、产品名等）
 """
 
@@ -236,6 +237,9 @@ class HybridSearcher:
         # 4. 构建 Context + LLM 生成答案
         wiki_context, data_context = self._build_context(context_chunks)
         prompt = RAG_USER_TEMPLATE.format(query=query, wiki_context=wiki_context, data_context=data_context)
+        # 动态 max_tokens：context 越丰富，允许回答越长
+        context_len = sum(len(h.get("text", "")) for h in context_chunks)
+        max_tokens = min(4000, max(2000, context_len // 2))
         try:
             response = self.client.chat.completions.create(
                 model=self.model,
@@ -244,8 +248,8 @@ class HybridSearcher:
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.3,
-                max_tokens=2000,
-                timeout=45,
+                max_tokens=max_tokens,
+                timeout=60,
             )
             answer = response.choices[0].message.content.strip()
         except Exception as e:
@@ -572,6 +576,9 @@ sources_count: {len(sources)}
         # 4. LLM 流式生成答案
         wiki_context, data_context = self._build_context(context_chunks)
         prompt = RAG_USER_TEMPLATE.format(query=query, wiki_context=wiki_context, data_context=data_context)
+        # 动态 max_tokens
+        context_len = sum(len(h.get("text", "")) for h in context_chunks)
+        max_tokens = min(4000, max(2000, context_len // 2))
 
         try:
             stream = self.client.chat.completions.create(
@@ -581,7 +588,7 @@ sources_count: {len(sources)}
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.3,
-                max_tokens=2000,
+                max_tokens=max_tokens,
                 stream=True,
                 timeout=60,
             )
