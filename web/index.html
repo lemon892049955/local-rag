@@ -77,13 +77,7 @@
         .spinner{border:3px solid #e5e7eb;border-top-color:#6366f1;border-radius:50%;width:20px;height:20px;animation:spin .6s linear infinite;display:inline-block}
         @keyframes spin{to{transform:rotate(360deg)}}
         /* 圆球精灵动效 */
-        .bot-btn{animation:botFloat 3s ease-in-out infinite}
-        .bot-btn::before{content:'';position:absolute;inset:-5px;border-radius:50%;background:inherit;opacity:0;animation:botPulse 2.5s ease-in-out infinite;z-index:-1}
-        .bot-btn:hover{animation-play-state:paused}
-        .bot-btn:hover .bot-pupil{transform:translate(1px,0);transition:transform .2s}
         .bot-btn:hover .bot-eye{animation:eyeSquish .4s ease}
-        @keyframes botFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
-        @keyframes botPulse{0%,100%{opacity:0;transform:scale(1)}50%{opacity:.25;transform:scale(1.2)}}
         @keyframes eyeSquish{0%,100%{transform:scaleY(1)}40%{transform:scaleY(.15)}60%{transform:scaleY(1.1)}}
         .sidebar-item{transition:all .15s}.sidebar-item:hover{background:#eef2ff}
         .sidebar-item.active{background:#e0e7ff;color:#4338ca;font-weight:600}
@@ -598,14 +592,12 @@
         <!-- 按钮本体：圆球小精灵 -->
         <div @click="chatOpen=true;suggestTip=''" class="bot-btn w-14 h-14 bg-gradient-to-br from-brand-400 to-brand-600 hover:from-brand-500 hover:to-brand-700 rounded-full flex items-center justify-center cursor-pointer shadow-2xl hover:shadow-brand-500/40 transition-all hover:scale-110 relative">
             <svg class="w-10 h-10" viewBox="0 0 40 40" fill="none">
-                <!-- 左眼 -->
-                <ellipse class="bot-eye" cx="14" cy="19" rx="3.5" ry="4" fill="white"/>
-                <circle class="bot-pupil" cx="15" cy="19" r="2" fill="#1e1b4b"/>
-                <circle cx="16" cy="17.5" r="0.8" fill="white"/>
-                <!-- 右眼 -->
-                <ellipse class="bot-eye" cx="26" cy="19" rx="3.5" ry="4" fill="white"/>
-                <circle class="bot-pupil" cx="27" cy="19" r="2" fill="#1e1b4b"/>
-                <circle cx="28" cy="17.5" r="0.8" fill="white"/>
+                <!-- 两只圆眼睛 -->
+                <circle class="bot-eye" cx="14" cy="17" r="2.5" fill="white"/>
+                <circle class="bot-eye" cx="26" cy="17" r="2.5" fill="white"/>
+                <!-- 小书本 -->
+                <path d="M13 25 C13 23.5 16 23 20 23 C24 23 27 23.5 27 25" stroke="white" stroke-width="1.5" stroke-linecap="round" fill="none"/>
+                <path d="M20 23 V26" stroke="white" stroke-width="1" stroke-linecap="round"/>
             </svg>
             <span x-show="unreadCount>0" class="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full text-[10px] flex items-center justify-center font-bold" x-text="unreadCount"></span>
         </div>
