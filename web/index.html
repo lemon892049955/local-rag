@@ -475,9 +475,34 @@
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>返回图谱
             </button>
             <div class="flex gap-2">
+                <button x-show="!wikiEditMode" @click="deleteWikiPage()" class="text-xs text-gray-400 hover:text-red-500 flex items-center gap-1 px-3 py-1.5 rounded-lg hover:bg-red-50 transition">
+                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>删除
+                </button>
                 <button x-show="!wikiEditMode" @click="wikiEditMode=true;wikiEditContent=wikiDetailData?.body||''" class="text-xs text-gray-500 hover:text-brand-600 flex items-center gap-1 px-3 py-1.5 rounded-lg hover:bg-brand-50 transition">
                     <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>编辑
                 </button>
+                <div x-show="!wikiEditMode" class="relative" x-data="{showCatPicker:false}">
+                    <button @click="showCatPicker=!showCatPicker;if(showCatPicker)loadTaxCategories()" class="text-xs text-gray-500 hover:text-brand-600 flex items-center gap-1 px-3 py-1.5 rounded-lg hover:bg-brand-50 transition">
+                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a4 4 0 014-4z"/></svg>调整分类
+                    </button>
+                    <div x-show="showCatPicker" @click.away="showCatPicker=false" class="absolute right-0 top-full mt-1 w-64 bg-white rounded-xl shadow-xl border border-gray-200 p-3 z-20">
+                        <div class="text-[10px] text-gray-400 mb-2">选择分类 (钉住后 AI 不会覆盖)</div>
+                        <template x-for="cat in taxCategories" :key="cat.name">
+                            <div class="mb-1">
+                                <div @click="moveToCat(cat.name,'')" class="text-xs font-medium text-gray-700 px-2 py-1.5 rounded-lg cursor-pointer hover:bg-brand-50 hover:text-brand-600 transition" x-text="cat.name"></div>
+                                <template x-for="child in cat.children" :key="child">
+                                    <div @click="moveToCat(cat.name,child)" class="text-[11px] text-gray-500 pl-5 py-1 rounded cursor-pointer hover:bg-brand-50 hover:text-brand-600 transition" x-text="'└ '+child"></div>
+                                </template>
+                            </div>
+                        </template>
+                        <div class="border-t border-gray-100 mt-2 pt-2">
+                            <div class="flex gap-1">
+                                <input x-model="newCatName" placeholder="新分类名..." class="flex-1 text-[11px] border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-brand-400">
+                                <button @click="if(newCatName.trim()){moveToCat(newCatName.trim(),'');newCatName=''}" class="text-[10px] bg-brand-600 text-white px-2 py-1 rounded hover:bg-brand-700">新建</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
         <div class="p-5 max-w-5xl mx-auto">
@@ -862,6 +887,7 @@ function app(){
         wikiEditMode:false,wikiEditContent:'',wikiEditSaving:false,
         batchUrls:'',batchLoading:false,batchResult:null,
         feedbackSubmitted:false,
+        taxCategories:[],newCatName:'',
 
         async init(){
             await Promise.all([this.loadStats(),this.loadCategories(),this.loadKnowledge(),this.loadTags(),this.loadTimeline(),this.loadWikiPages(),this.loadWikiTree(),this.loadWikiGraph()]);
@@ -1118,6 +1144,32 @@ function app(){
                 if(r.ok){this.wikiDetailData.body=this.wikiEditContent;this.wikiEditMode=false}
             }catch(e){}
             this.wikiEditSaving=false;
+        },
+
+        // 分类调整
+        async loadTaxCategories(){
+            try{const r=await fetch('/api/wiki/taxonomy/categories');if(r.ok){const d=await r.json();this.taxCategories=d.categories||[]}}catch(e){}
+        },
+        async moveToCat(cat,sub){
+            const path=this.wikiDetailData?.path||'';
+            if(!path)return;
+            try{
+                const r=await fetch('/api/wiki/taxonomy/move',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({page_path:path,category:cat,subcategory:sub||''})});
+                if(r.ok){await this.loadWikiTree();alert(`已移至「${cat}${sub?'/'+sub:''}」(pinned)`)}
+            }catch(e){}
+        },
+
+        // 删除 Wiki 页面
+        async deleteWikiPage(){
+            const path=this.wikiDetailData?.path||'';
+            const title=this.wikiDetailData?.meta?.title||path;
+            if(!path||!confirm(`确定删除「${title}」？\n\n删除后将从分类树和向量索引中移除，不可恢复。`))return;
+            try{
+                const parts=path.split('/');
+                if(parts.length!==2)return;
+                const r=await fetch('/api/wiki/page/'+encodeURIComponent(parts[0])+'/'+encodeURIComponent(parts[1]),{method:'DELETE'});
+                if(r.ok){this.page='graph';await Promise.all([this.loadWikiPages(),this.loadWikiTree(),this.loadWikiGraph(),this.loadStats()])}
+            }catch(e){}
         },
 
         // 搜索反馈

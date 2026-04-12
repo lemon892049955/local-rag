@@ -534,13 +534,80 @@ async def get_wiki_tree():
 
 @app.post("/api/wiki/reclassify")
 async def reclassify_wiki():
-    """重新分类所有 Wiki 页面 — 清空 taxonomy 后逐个用 LLM 动态分类"""
+    """重新分类所有 Wiki 页面 — 清空 taxonomy 后逐个用 LLM 动态分类（保留 pinned）"""
     from wiki.taxonomy import init_taxonomy_from_existing, _reclassify_running
     if _reclassify_running:
         raise HTTPException(status_code=409, detail="重分类正在进行中，请稍后再试")
     import asyncio
     asyncio.create_task(init_taxonomy_from_existing())
-    return {"success": True, "message": "重分类已启动（后台执行中）"}
+    return {"success": True, "message": "重分类已启动（后台执行中，pinned 页面保留）"}
+
+
+@app.post("/api/wiki/taxonomy/move")
+async def move_wiki_category(req: dict):
+    """手动调整 Wiki 页面分类 — 标记 pinned，AI 重分类时跳过
+
+    Body: {"page_path": "topics/xxx.md", "category": "分类名", "subcategory": "子分类名"}
+    """
+    page_path = req.get("page_path", "").strip()
+    category = req.get("category", "").strip()
+    if not page_path or not category:
+        raise HTTPException(status_code=400, detail="需要 page_path 和 category")
+
+    from wiki.taxonomy import move_page_category
+    result = move_page_category(
+        page_path=page_path,
+        category=category,
+        subcategory=req.get("subcategory", "").strip(),
+    )
+    return result
+
+
+@app.get("/api/wiki/taxonomy/categories")
+async def list_taxonomy_categories():
+    """获取当前分类体系（含子分类列表）— 前端分类选择器用"""
+    from wiki.taxonomy import load_taxonomy
+    taxonomy = load_taxonomy()
+    categories = taxonomy.get("categories", {})
+    pinned = set(taxonomy.get("pinned_pages", []))
+
+    result = []
+    for cat_name, cat_data in categories.items():
+        if not isinstance(cat_data, dict):
+            continue
+        children = list(cat_data.get("children", {}).keys())
+        result.append({"name": cat_name, "children": children})
+    return {"categories": result, "pinned_count": len(pinned)}
+
+
+@app.delete("/api/wiki/page/{subdir}/{filename}")
+async def delete_wiki_page(subdir: str, filename: str):
+    """删除 Wiki 页面 — 同时清理分类树和向量索引"""
+    page_path = _safe_wiki_path(subdir, filename)
+    from config import WIKI_DIR
+    filepath = WIKI_DIR / page_path
+    if not filepath.exists():
+        raise HTTPException(status_code=404, detail="Wiki 页面不存在")
+
+    # 1. 删除文件
+    filepath.unlink()
+
+    # 2. 从分类树中移除 + 清理 pinned
+    from wiki.taxonomy import load_taxonomy, save_taxonomy, _remove_page_from_all
+    taxonomy = load_taxonomy()
+    _remove_page_from_all(taxonomy, page_path)
+    pinned = set(taxonomy.get("pinned_pages", []))
+    pinned.discard(page_path)
+    taxonomy["pinned_pages"] = sorted(pinned)
+    save_taxonomy(taxonomy)
+
+    # 3. 重建向量索引（移除该文件的 chunks）
+    try:
+        get_indexer().reindex_all()
+    except Exception as e:
+        logging.warning(f"Wiki 索引重建失败: {e}")
+
+    return {"success": True, "message": f"已删除: {page_path}"}
 
 
 @app.get("/api/wiki/log")

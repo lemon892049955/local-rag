@@ -57,32 +57,34 @@ CLASSIFY_PROMPT = """你是一个知识分类专家。请根据页面的**语义
 ## 当前分类体系
 {taxonomy_tree}
 
-## 分类规则
+## 一级分类规则
 
-1. **优先归入已有分类/子分类**：如果新页面的内容与已有分类或子分类语义匹配，直接归入
-2. **允许新建分类**：如果现有分类都不合适，可以新建，并提供 description
-3. **分类命名要求**：4-10 个字中文短语，体现核心主题
-4. **按语义而非关键词分类**：标题含"AI"但内容讲面试 → 归入面试相关分类
-5. **同主题聚合**：相似主题的内容聚到同一分类，避免过度碎片化
+1. **优先归入已有分类/子分类**：语义匹配时直接归入
+2. **允许新建一级分类**：如果现有分类都不合适，大胆新建。目标是 **6-10 个一级分类**
+3. **一级分类 = 知识领域**：每个一级分类代表一个独立的知识领域，不要把不相关的领域强行塞到同一个分类
+4. **分类命名**：4-10 个字中文短语
 
-### ⚠️ 二级分类（subcategory）使用规则 — 非常重要
+### 领域划分指引（不同领域应该是不同的一级分类）
 
-6. **积极使用二级分类**：当一个一级分类下的页面内容可以进一步区分时，**必须**使用 subcategory
-7. **二级分类的判断标准**：
-   - 同一一级分类下有 **不同子主题** 的页面 → 用 subcategory 区分
-   - 例：「AI产品经理」下可以分「面试求职」「能力模型」「工作方法」
-   - 例：「开发工具实践」下可以分「RAG与检索」「AI编程助手」「前端工具」
-   - 例：「AI行业趋势」下可以分「行业报告」「AI产品」「AI公司」
-8. **实体(entity)和概念(concept)** 应该按其所属领域分到对应子分类，不要把所有 entity 堆在一个大分类里
-   - Cursor/Claude Code → 「开发工具实践 / AI编程助手」
-   - 张小龙/Karpathy → 「产品人物与思想 / 人物」
-   - ChatGPT/智谱AI → 「AI产品案例 / AI产品」
-9. **subcategory 命名**：2-6 个字，简洁准确
+- 产品设计方法（设计原则、交互设计、用户研究） ≠ AI产品经理（面试、求职、职业发展）
+- 数据分析与统计（统计检验、数据方法） ≠ 开发工具（编程工具、RAG系统）
+- 产品人物与思想（人物故事、商业哲学） ≠ AI产品案例（具体产品分析）
+- 项目文档（本项目的架构、代码） ≠ 通用开发工具
+- AIGC内容创作（短剧、视频、角色设计） ≠ AI产品实践
 
-### 页面类型判断
-- topic: 围绕概念/方法论/技术/趋势的知识主题
-- entity: 围绕具体人物/公司/产品/品牌的事实集合
-- concept: 行业通用的专业术语/方法论/技术名词的定义卡片
+### ⚠️ 常见错误（必须避免）
+
+- ❌ 把统计检验方法（t检验、卡方检验）放到"开发工具实践" → ✅ 应放到"数据分析与统计"
+- ❌ 把设计原则（尼尔森原则、一致性原则）放到"AI产品经理" → ✅ 应放到"产品设计方法"
+- ❌ 把项目自身文档（Local RAG架构）放到"开发工具实践" → ✅ 应放到"项目文档"
+- ❌ 把社交平台（小红书、抖音、饭否）放到"AI产品" → ✅ 应放到"互联网产品"或单独分类
+- ❌ 把人物（张小龙、Karpathy）放到"AI产品经理" → ✅ 应放到"产品人物与思想"
+
+## 二级分类（subcategory）规则
+
+5. **积极使用子分类**：一级分类下内容可进一步区分时，用 subcategory
+6. 命名 2-6 个字，简洁准确
+7. entity/concept 按其**所属知识领域**分，不要按类型堆
 
 ## 新页面信息
 - 路径: {page_path}
@@ -91,7 +93,7 @@ CLASSIFY_PROMPT = """你是一个知识分类专家。请根据页面的**语义
 - 类型: {page_type}
 
 只输出 JSON（不要任何其他文字），格式:
-{{"category": "已有分类名 或 新分类名", "subcategory": "子分类名（强烈建议填写）", "description": "新分类时必填", "suggested_type": "topic|entity|concept", "reason": "一句话原因"}}"""
+{{"category": "已有分类名 或 新分类名", "subcategory": "子分类名（建议填写）", "description": "新分类时必填", "suggested_type": "topic|entity|concept", "reason": "一句话原因"}}"""
 
 MERGE_PROMPT = """你是一个知识分类专家。当前分类体系需要优化。
 
@@ -224,6 +226,87 @@ def add_page_to_taxonomy(page_path: str, category: str, subcategory: str = "",
 
     save_taxonomy(taxonomy)
     logger.info(f"Taxonomy: {page_path} → {category}" + (f"/{subcategory}" if subcategory else ""))
+
+
+# ===== 人工分类调整（pinned 机制）=====
+
+def get_pinned_pages() -> set:
+    """获取所有被用户手动钉住的页面路径"""
+    taxonomy = load_taxonomy()
+    return set(taxonomy.get("pinned_pages", []))
+
+
+def _remove_page_from_all(taxonomy: dict, page_path: str):
+    """从分类树中移除某页面（所有出现位置）"""
+    for cat_data in taxonomy.get("categories", {}).values():
+        if not isinstance(cat_data, dict):
+            continue
+        pages = cat_data.get("pages", [])
+        if page_path in pages:
+            pages.remove(page_path)
+        for child_data in cat_data.get("children", {}).values():
+            if isinstance(child_data, dict):
+                child_pages = child_data.get("pages", [])
+                if page_path in child_pages:
+                    child_pages.remove(page_path)
+
+
+def move_page_category(page_path: str, category: str, subcategory: str = "",
+                       description: str = "") -> dict:
+    """用户手动将页面移到指定分类（自动标记 pinned）
+
+    被 pinned 的页面在 AI 重分类时会被跳过，保留用户的判断。
+
+    Returns:
+        {"success": True, "pinned": True, "category": "...", "subcategory": "..."}
+    """
+    taxonomy = load_taxonomy()
+
+    # 1. 从旧位置移除
+    _remove_page_from_all(taxonomy, page_path)
+
+    # 2. 添加到新位置
+    categories = taxonomy.setdefault("categories", {})
+    if category not in categories:
+        categories[category] = {
+            "description": description,
+            "pages": [],
+            "children": {},
+        }
+
+    cat = categories[category]
+    if not isinstance(cat, dict):
+        cat = {"description": "", "pages": [], "children": {}}
+        categories[category] = cat
+
+    if subcategory:
+        children = cat.setdefault("children", {})
+        if subcategory not in children:
+            children[subcategory] = {"pages": []}
+        sub = children[subcategory]
+        if not isinstance(sub, dict):
+            sub = {"pages": []}
+            children[subcategory] = sub
+        if page_path not in sub.get("pages", []):
+            sub["pages"].append(page_path)
+    else:
+        if page_path not in cat.get("pages", []):
+            cat.setdefault("pages", []).append(page_path)
+
+    # 3. 标记 pinned
+    pinned = set(taxonomy.get("pinned_pages", []))
+    pinned.add(page_path)
+    taxonomy["pinned_pages"] = sorted(pinned)
+
+    save_taxonomy(taxonomy)
+    logger.info(f"Taxonomy 手动调整: {page_path} → {category}/{subcategory} (pinned)")
+
+    return {
+        "success": True,
+        "pinned": True,
+        "category": category,
+        "subcategory": subcategory,
+    }
 
 
 async def classify_page(page_path: str, page_title: str,
@@ -387,9 +470,30 @@ async def init_taxonomy_from_existing():
         if TAXONOMY_FILE.exists():
             backup_file.write_text(TAXONOMY_FILE.read_text(encoding="utf-8"), encoding="utf-8")
 
-        # 在内存中构建新分类树
-        new_taxonomy = {"version": 1, "categories": {}}
+        # 保留 pinned 页面的分类信息
+        pinned = set(old_taxonomy.get("pinned_pages", []))
+        pinned_entries = []  # [(page_path, category, subcategory)]
+        if pinned:
+            for cat_name, cat_data in old_taxonomy.get("categories", {}).items():
+                if not isinstance(cat_data, dict):
+                    continue
+                for p in cat_data.get("pages", []):
+                    if p in pinned:
+                        pinned_entries.append((p, cat_name, ""))
+                for child_name, child_data in cat_data.get("children", {}).items():
+                    if isinstance(child_data, dict):
+                        for p in child_data.get("pages", []):
+                            if p in pinned:
+                                pinned_entries.append((p, cat_name, child_name))
+            logger.info(f"保留 {len(pinned_entries)} 个用户钉住的分类")
+
+        # 清空分类树（保留 pinned_pages 列表）
+        new_taxonomy = {"version": 1, "categories": {}, "pinned_pages": sorted(pinned)}
         save_taxonomy(new_taxonomy)
+
+        # 先恢复 pinned 页面的分类
+        for page_path, cat, subcat in pinned_entries:
+            add_page_to_taxonomy(page_path, cat, subcat)
 
         success = 0
         for page in pages:
@@ -397,6 +501,10 @@ async def init_taxonomy_from_existing():
             title = page.get("title", "")
             summary = page.get("summary", "")
             page_type = page.get("type", "topic")
+
+            # 跳过用户钉住的页面（已在上面恢复）
+            if path in pinned:
+                continue
 
             if not summary or len(summary) < 20:
                 page_data = read_page(path)
