@@ -76,14 +76,15 @@
         .tag{display:inline-block;padding:2px 10px;border-radius:9999px;font-size:.7rem;font-weight:500}
         .spinner{border:3px solid #e5e7eb;border-top-color:#6366f1;border-radius:50%;width:20px;height:20px;animation:spin .6s linear infinite;display:inline-block}
         @keyframes spin{to{transform:rotate(360deg)}}
-        /* 机器人按钮动效 */
+        /* 圆球精灵动效 */
         .bot-btn{animation:botFloat 3s ease-in-out infinite}
-        .bot-btn::before{content:'';position:absolute;inset:-4px;border-radius:18px;background:inherit;opacity:0;animation:botPulse 2.5s ease-in-out infinite;z-index:-1}
+        .bot-btn::before{content:'';position:absolute;inset:-5px;border-radius:50%;background:inherit;opacity:0;animation:botPulse 2.5s ease-in-out infinite;z-index:-1}
         .bot-btn:hover{animation-play-state:paused}
-        .bot-btn:hover .bot-eye{animation:eyeBlink .3s ease}
+        .bot-btn:hover .bot-pupil{transform:translate(1px,0);transition:transform .2s}
+        .bot-btn:hover .bot-eye{animation:eyeSquish .4s ease}
         @keyframes botFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
-        @keyframes botPulse{0%,100%{opacity:0;transform:scale(1)}50%{opacity:.3;transform:scale(1.15)}}
-        @keyframes eyeBlink{0%,100%{transform:scaleY(1)}50%{transform:scaleY(.1)}}
+        @keyframes botPulse{0%,100%{opacity:0;transform:scale(1)}50%{opacity:.25;transform:scale(1.2)}}
+        @keyframes eyeSquish{0%,100%{transform:scaleY(1)}40%{transform:scaleY(.15)}60%{transform:scaleY(1.1)}}
         .sidebar-item{transition:all .15s}.sidebar-item:hover{background:#eef2ff}
         .sidebar-item.active{background:#e0e7ff;color:#4338ca;font-weight:600}
         .graph-node{cursor:pointer}
@@ -594,14 +595,17 @@
             <button @click.stop="suggestTip=''" class="absolute top-1.5 right-2 text-gray-300 hover:text-gray-500 text-sm">&times;</button>
             <div class="absolute bottom-[-6px] right-6 w-3 h-3 bg-white dark:bg-surface-800 border-r border-b border-gray-200 dark:border-gray-700 rotate-45"></div>
         </div>
-        <!-- 按钮本体 -->
-        <div @click="chatOpen=true;suggestTip=''" class="bot-btn w-16 h-16 bg-gradient-to-br from-brand-500 to-brand-700 hover:from-brand-600 hover:to-brand-800 rounded-2xl flex items-center justify-center cursor-pointer shadow-2xl hover:shadow-brand-500/30 transition-all hover:scale-110 relative">
-            <svg class="w-8 h-8 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <rect x="4" y="4" width="16" height="12" rx="3" stroke-linecap="round"/>
-                <circle class="bot-eye" cx="9" cy="10" r="1.2" fill="currentColor" stroke="none"/>
-                <circle class="bot-eye" cx="15" cy="10" r="1.2" fill="currentColor" stroke="none"/>
-                <path d="M8 16v2a1 1 0 001 1h6a1 1 0 001-1v-2" stroke-linecap="round"/>
-                <path d="M2 8h2M20 8h2M12 2v2" stroke-linecap="round" stroke-width="1.5"/>
+        <!-- 按钮本体：圆球小精灵 -->
+        <div @click="chatOpen=true;suggestTip=''" class="bot-btn w-14 h-14 bg-gradient-to-br from-brand-400 to-brand-600 hover:from-brand-500 hover:to-brand-700 rounded-full flex items-center justify-center cursor-pointer shadow-2xl hover:shadow-brand-500/40 transition-all hover:scale-110 relative">
+            <svg class="w-10 h-10" viewBox="0 0 40 40" fill="none">
+                <!-- 左眼 -->
+                <ellipse class="bot-eye" cx="14" cy="19" rx="3.5" ry="4" fill="white"/>
+                <circle class="bot-pupil" cx="15" cy="19" r="2" fill="#1e1b4b"/>
+                <circle cx="16" cy="17.5" r="0.8" fill="white"/>
+                <!-- 右眼 -->
+                <ellipse class="bot-eye" cx="26" cy="19" rx="3.5" ry="4" fill="white"/>
+                <circle class="bot-pupil" cx="27" cy="19" r="2" fill="#1e1b4b"/>
+                <circle cx="28" cy="17.5" r="0.8" fill="white"/>
             </svg>
             <span x-show="unreadCount>0" class="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full text-[10px] flex items-center justify-center font-bold" x-text="unreadCount"></span>
         </div>
