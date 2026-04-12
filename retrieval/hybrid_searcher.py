@@ -471,9 +471,9 @@ sources_count: {len(sources)}
             if cid in seen_ids:
                 continue
             seen_ids.add(cid)
-            # 质量门控：保底保留前 2 个，多余的低分才丢弃
+            # 质量门控：保底保留 reranked top5，多余的低分才丢弃
             rerank_score = h.get("rerank_score", h.get("rrf_score", 1.0))
-            if kept_count >= 2 and rerank_score < 0.01:
+            if kept_count >= 5 and rerank_score < 0.01:
                 logger.debug(f"丢弃低相关 chunk: {h.get('title', '')[:30]} score={rerank_score:.3f}")
                 continue
             kept_count += 1
@@ -482,7 +482,7 @@ sources_count: {len(sources)}
             else:
                 wiki_chunks.append(h)
 
-        # 如果原文不够，从全部候选中补充（也做门控）
+        # 如果原文不够，从全部候选中补充
         if len(data_chunks) < min_data:
             for h in all_candidates:
                 if len(data_chunks) >= min_data:
@@ -494,16 +494,8 @@ sources_count: {len(sources)}
                     data_chunks.append(h)
                     seen_ids.add(cid)
 
-        # 动态窗口：根据 rerank_score 分层控制数量
-        def _score_of(h):
-            return h.get("rerank_score", h.get("rrf_score", 0))
-
-        # 高相关原文全部保留，中相关最多 3 个
-        high_data = [h for h in data_chunks if _score_of(h) > 0.3]
-        mid_data = [h for h in data_chunks if 0.05 <= _score_of(h) <= 0.3]
-        selected_data = high_data + mid_data[:max(0, min_data - len(high_data))]
-        selected_data = selected_data[:min_data + 2]  # 最多 5 个原文
-
+        # 组合：优先原文，补充 wiki，保证 top5 都进入 context
+        selected_data = data_chunks[:min_data + 2]  # 最多 5 个原文
         remaining = total - len(selected_data)
         selected_wiki = wiki_chunks[:max(remaining, 2)]  # 至少 2 个 wiki
 
