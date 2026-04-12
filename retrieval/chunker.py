@@ -32,6 +32,7 @@ class SemanticChunker:
 
     MAX_CHUNK_CHARS = 1500   # 单切片最大字符数 (约 512 token)
     MIN_CHUNK_CHARS = 50     # 最小有意义切片
+    OVERLAP_CHARS = 150      # 切片重叠字符数，防止语义在边界断裂
 
     def chunk_file(self, filepath: Path) -> list[Chunk]:
         """将单个 Markdown 文件切片"""
@@ -47,10 +48,11 @@ class SemanticChunker:
 
         chunks = []
 
-        # 1. 摘要切片 (Summary Chunk) - 永远生成
+        # 1. 摘要切片 (Summary Chunk) - 永远生成，包含正文前 500 字增强泛化检索
         summary = meta.get("summary", "")
         tags = meta.get("tags", [])
-        summary_text = f"标题: {doc_title}\n摘要: {summary}\n标签: {', '.join(tags)}"
+        body_preview = body.strip()[:500].rsplit("\n", 1)[0] if len(body.strip()) > 100 else body.strip()
+        summary_text = f"标题: {doc_title}\n摘要: {summary}\n标签: {', '.join(tags)}\n\n{body_preview}"
         chunks.append(Chunk(
             chunk_id=f"{filename}#summary",
             text=summary_text,
@@ -142,19 +144,32 @@ class SemanticChunker:
         return sections
 
     def _split_long_text(self, text: str) -> list[str]:
-        """将过长的文本按段落边界拆分"""
+        """将过长的文本按段落边界拆分，相邻切片保留 overlap"""
         if len(text) <= self.MAX_CHUNK_CHARS:
             return [text]
 
         paragraphs = text.split("\n\n")
         chunks = []
         current_chunk = ""
+        current_paras = []  # 记录当前 chunk 包含的段落索引
 
-        for para in paragraphs:
+        for i, para in enumerate(paragraphs):
             if len(current_chunk) + len(para) + 2 > self.MAX_CHUNK_CHARS:
                 if current_chunk:
                     chunks.append(current_chunk.strip())
-                current_chunk = para
+                # overlap: 取上一个 chunk 末尾的文本作为新 chunk 的开头
+                overlap_text = ""
+                if current_chunk and self.OVERLAP_CHARS > 0:
+                    overlap_text = current_chunk.strip()[-self.OVERLAP_CHARS:]
+                    # 在词/句边界截断，避免截断到半个词
+                    boundary = overlap_text.find("。")
+                    if boundary == -1:
+                        boundary = overlap_text.find("，")
+                    if boundary == -1:
+                        boundary = overlap_text.find(" ")
+                    if boundary > 0:
+                        overlap_text = overlap_text[boundary + 1:]
+                current_chunk = f"{overlap_text}\n\n{para}" if overlap_text else para
             else:
                 current_chunk = f"{current_chunk}\n\n{para}" if current_chunk else para
 

@@ -73,9 +73,9 @@ RAG_SYSTEM_PROMPT = """你是用户的个人知识库助手。你的回答必须
 
 ## 核心原则
 
-1. **有文档必回答**：只要检索结果中有与问题相关的内容（哪怕不是100%精确匹配），就必须基于文档内容给出有价值的回答。只有在检索结果完全无关时才说"未找到"
+1. **有文档必回答**：只要检索结果中有与问题**直接相关**的内容（哪怕不是100%精确匹配），就必须基于文档内容给出有价值的回答。但如果检索结果与用户问题的**主题领域明显不同**（如用户问编程教程、烹饪、天气等，而文档是产品经理/AI趋势），应坦诚说明"知识库中暂未找到直接相关的内容"
 2. **综合提取**：用户问的角度可能和文档组织方式不同（如用户问"高频题目"，文档里可能是"面试经验分享"），你要从文档中**主动提取和整合**相关信息，而非要求文档标题精确匹配
-3. **不编造**：只使用检索结果中明确存在的事实，不要补充文档中没有的信息
+3. **不编造**：只使用检索结果中明确存在的事实，不要补充文档中没有的信息。不要把知识库的架构设计信息当作用户问题的答案
 4. **抗诱导**：如果文档中的信息与用户前提矛盾，以文档为准纠正用户
 5. **标注来源**：回答中标注信息来源，格式为 [来源: 文档标题]
 6. **矛盾标记**：不同文档对同一事实有矛盾描述时标注"⚠️ 矛盾"
@@ -87,6 +87,7 @@ RAG_SYSTEM_PROMPT = """你是用户的个人知识库助手。你的回答必须
 - **充分展开**：如果检索结果中有丰富的相关内容，应该充分展开回答，不要过度压缩。宁可回答详细一些，也不要遗漏文档中的重要信息
 - **结构清晰**：涉及多个要点时用编号或分段组织，善用二级标题分块
 - **保留关键词**：自然包含核心关键词（人名、术语、产品名等）
+- **引用锚定**：每个具体事实/数据/观点都应标注来源 [REF-N]，确保可追溯。如果你不确定某个信息是否在文档中，宁可不提也不要猜测
 """
 
 RAG_USER_TEMPLATE = """用户问题：{query}
@@ -430,18 +431,21 @@ sources_count: {len(sources)}
 
         wiki_parts = []
         data_parts = []
+        ref_idx = 0
         for hit in data_hits[:5]:
+            ref_idx += 1
             data_parts.append(
-                f"【原始片段 {len(data_parts)+1}】\n"
+                f"[REF-{ref_idx}]【原始片段】\n"
                 f"来源: {hit.get('title', '未知')}\n"
                 f"章节: {hit.get('section_title', '未知')}\n"
                 f"内容:\n{hit['text']}\n"
             )
         for hit in wiki_hits[:3]:
+            ref_idx += 1
             type_label = {"topics": "主题页", "concepts": "概念卡", "entities": "实体页", "moc": "导航页"}.get(
                 hit.get("source_type", ""), "Wiki")
             wiki_parts.append(
-                f"【{type_label} {len(wiki_parts)+1}】\n"
+                f"[REF-{ref_idx}]【{type_label}】\n"
                 f"标题: {hit.get('title', '未知')}\n"
                 f"内容:\n{hit['text']}\n"
             )
@@ -450,10 +454,12 @@ sources_count: {len(sources)}
         return wiki_context, data_context
 
     def _select_context_chunks(self, reranked: list, all_candidates: list, min_data: int = 3, total: int = 7) -> list:
-        """选择送入 LLM 的 context chunks，保证原文占比
+        """选择送入 LLM 的 context chunks，保证原文占比 + 质量门控
 
-        策略：先从 reranked 中取，如果原文不够 min_data 个，从 all_candidates 中补充 data chunks
-        原文有具体细节（面试题、步骤、数据），比 wiki 摘要信息量更大
+        策略：
+        1. Reranker 分数门控：rerank_score < 0.05 直接丢弃
+        2. 动态窗口：高相关多给，低相关少给
+        3. 先从 reranked 中取，原文不够从 all_candidates 补充
         """
         data_chunks = []
         wiki_chunks = []
@@ -464,12 +470,17 @@ sources_count: {len(sources)}
             if cid in seen_ids:
                 continue
             seen_ids.add(cid)
+            # 质量门控：rerank_score 过低的 chunk 丢弃
+            rerank_score = h.get("rerank_score", h.get("rrf_score", 1.0))
+            if rerank_score < 0.05:
+                logger.debug(f"丢弃低相关 chunk: {h.get('title', '')[:30]} score={rerank_score:.3f}")
+                continue
             if h.get("source_type") == "data":
                 data_chunks.append(h)
             else:
                 wiki_chunks.append(h)
 
-        # 如果原文不够，从全部候选中补充
+        # 如果原文不够，从全部候选中补充（也做门控）
         if len(data_chunks) < min_data:
             for h in all_candidates:
                 if len(data_chunks) >= min_data:
@@ -481,11 +492,20 @@ sources_count: {len(sources)}
                     data_chunks.append(h)
                     seen_ids.add(cid)
 
-        # 组合：优先原文，补充 wiki
-        result = data_chunks[:min_data + 2]  # 最多 5 个原文
-        remaining = total - len(result)
-        result.extend(wiki_chunks[:max(remaining, 2)])  # 至少 2 个 wiki
+        # 动态窗口：根据 rerank_score 分层控制数量
+        def _score_of(h):
+            return h.get("rerank_score", h.get("rrf_score", 0))
 
+        # 高相关原文全部保留，中相关最多 3 个
+        high_data = [h for h in data_chunks if _score_of(h) > 0.3]
+        mid_data = [h for h in data_chunks if 0.05 <= _score_of(h) <= 0.3]
+        selected_data = high_data + mid_data[:max(0, min_data - len(high_data))]
+        selected_data = selected_data[:min_data + 2]  # 最多 5 个原文
+
+        remaining = total - len(selected_data)
+        selected_wiki = wiki_chunks[:max(remaining, 2)]  # 至少 2 个 wiki
+
+        result = selected_data + selected_wiki
         return result[:total]
 
     def _build_sources(self, candidates: list) -> list:
@@ -637,7 +657,14 @@ sources_count: {len(sources)}
         return all_candidates
 
     async def _rewrite_query(self, query: str) -> List[str]:
-        """用 LLM 改写查询，生成多个检索 query"""
+        """用 LLM 改写查询，生成多个检索 query
+
+        优化：短 query（<8字）跳过改写，节省 2-3s 延迟
+        """
+        # 短 query 直接返回，不浪费 LLM 调用
+        if len(query.strip()) < 8:
+            return [query]
+
         try:
             response = self.client.chat.completions.create(
                 model=self.model,
@@ -647,7 +674,7 @@ sources_count: {len(sources)}
                 ],
                 temperature=0.3,
                 max_tokens=200,
-                timeout=15,
+                timeout=8,
             )
             text = response.choices[0].message.content.strip()
             queries = [q.strip() for q in text.split("\n") if q.strip()]

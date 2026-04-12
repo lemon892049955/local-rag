@@ -66,6 +66,13 @@ async def startup_event():
     await start_compile_worker()
     from assistant.scheduler import start_scheduler
     await start_scheduler()
+    # 预热 Reranker + Embedding，避免首次搜索冷启动
+    try:
+        searcher = get_searcher()
+        _ = searcher.reranker.model  # 触发延迟加载
+        logger.info("Reranker 模型预热完成")
+    except Exception as e:
+        logger.warning(f"Reranker 预热失败（首次搜索时加载）: {e}")
 
 
 # 全局组件（延迟初始化以加速启动）
