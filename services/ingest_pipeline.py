@@ -94,13 +94,14 @@ async def ocr_images(raw: RawContent, max_images: int = 10):
         logger.warning(f"OCR 处理失败: {e}")
 
 
-async def ingest_url(url: str, skip_duplicate: bool = True,
+async def ingest_url(url: str, skip_duplicate: bool = True, force: bool = False,
                      on_progress: ProgressCallback = None) -> dict:
     """完整入库流程：URL → 抓取 → OCR → 清洗 → 落库 → 索引 → Wiki 编译
 
     Args:
         url: 要入库的 URL
         skip_duplicate: 是否跳过已入库的 URL
+        force: 强制重新入库（删除旧文件后重新走全流程）
         on_progress: 可选的异步进度回调 (stage, status, message, progress_percent)
 
     Returns:
@@ -113,9 +114,22 @@ async def ingest_url(url: str, skip_duplicate: bool = True,
             except Exception:
                 pass
 
-    # 1. 去重检查
+    # 1. 去重检查（force 模式下删除旧文件）
     await _progress("dedup", "running", "去重检查中...", 5)
-    if skip_duplicate:
+    if force:
+        existing = check_duplicate(url, DATA_DIR)
+        if existing:
+            from pathlib import Path
+            old_path = Path(existing) if Path(existing).is_absolute() else DATA_DIR / existing
+            if old_path.exists():
+                old_path.unlink()
+                logger.info(f"强制重入库: 已删除旧文件 {old_path.name}")
+                await _progress("dedup", "ok", f"强制模式: 已删除旧文件 {old_path.name}", 10)
+            else:
+                await _progress("dedup", "ok", "强制模式: 无旧文件", 10)
+        else:
+            await _progress("dedup", "ok", "强制模式: 无旧文件", 10)
+    elif skip_duplicate:
         existing = check_duplicate(url, DATA_DIR)
         if existing:
             await _progress("dedup", "duplicate", "该链接已入库", 100)
@@ -181,6 +195,22 @@ async def ingest_url(url: str, skip_duplicate: bool = True,
     # 7. Wiki 编译入队
     await _progress("compile", "running", "Wiki 编译入队...", 93)
     try:
+        # force 模式：清除 Wiki 页面中该文件的 sources 引用，确保重编译不被跳过
+        if force:
+            try:
+                from wiki.page_store import list_wiki_pages, read_page
+                from config import WIKI_DIR
+                fname = filepath.name
+                for p in list_wiki_pages():
+                    if fname in p.get("sources", []):
+                        pp = WIKI_DIR / p["path"]
+                        if pp.exists():
+                            content = pp.read_text(encoding="utf-8")
+                            content = content.replace(f"  - {fname}\n", "").replace(f"  - {fname}", "")
+                            pp.write_text(content, encoding="utf-8")
+                logger.info(f"强制重入库: 已清除 Wiki sources 中的 {fname}")
+            except Exception as e:
+                logger.warning(f"清除 Wiki sources 失败: {e}")
         from wiki.compile_queue import enqueue_compile, get_queue
         await enqueue_compile(filepath)
         queue_size = get_queue().qsize()

@@ -124,6 +124,7 @@ def get_searcher():
 
 class IngestRequest(BaseModel):
     url: str
+    force: bool = False  # 强制重新入库（删除旧文件后重新走全流程）
 
 class BatchIngestRequest(BaseModel):
     urls: list[str]
@@ -156,7 +157,7 @@ async def ingest(req: IngestRequest):
         raise HTTPException(status_code=400, detail="URL 不能为空")
 
     from services.ingest_pipeline import ingest_url
-    result = await ingest_url(url)
+    result = await ingest_url(url, force=req.force)
 
     if not result.get("success") and not result.get("duplicate"):
         raise HTTPException(status_code=422, detail=result.get("error", "入库失败"))
@@ -195,7 +196,7 @@ async def ingest_stream(req: IngestRequest):
     async def event_generator():
         # 启动入库任务
         from services.ingest_pipeline import ingest_url
-        task = asyncio.create_task(ingest_url(url, on_progress=on_progress))
+        task = asyncio.create_task(ingest_url(url, force=req.force, on_progress=on_progress))
 
         # 持续读取进度事件
         while True:
