@@ -14,7 +14,7 @@ from config import get_llm_config
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """你是 Local RAG 的智能助手，一个个人知识库管理系统的 AI 伙伴。
+SYSTEM_PROMPT = """你是 BuddyKnow 的智能助手，一个个人知识库管理系统的 AI 伙伴。
 你帮助用户管理和查询从公众号、小红书、知乎等平台收集的碎片知识。
 
 你的能力:

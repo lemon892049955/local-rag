@@ -151,7 +151,6 @@ class SemanticChunker:
         paragraphs = text.split("\n\n")
         chunks = []
         current_chunk = ""
-        current_paras = []  # 记录当前 chunk 包含的段落索引
 
         for i, para in enumerate(paragraphs):
             if len(current_chunk) + len(para) + 2 > self.MAX_CHUNK_CHARS:

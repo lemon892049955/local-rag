@@ -457,8 +457,8 @@ sources_count: {len(sources)}
         """选择送入 LLM 的 context chunks，保证原文占比 + 质量门控
 
         策略：
-        1. Reranker 分数门控：保底至少保留 2 个 chunk，多余的 rerank_score < 0.01 才丢弃
-        2. 动态窗口：高相关多给，低相关少给
+        1. 保底保留 reranked top5 全部进入 context
+        2. 仅超出 top5 的低分 chunk (rerank_score < 0.01) 才丢弃
         3. 先从 reranked 中取，原文不够从 all_candidates 补充
         """
         data_chunks = []
