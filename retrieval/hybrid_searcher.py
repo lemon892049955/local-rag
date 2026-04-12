@@ -457,24 +457,26 @@ sources_count: {len(sources)}
         """选择送入 LLM 的 context chunks，保证原文占比 + 质量门控
 
         策略：
-        1. Reranker 分数门控：rerank_score < 0.05 直接丢弃
+        1. Reranker 分数门控：保底至少保留 2 个 chunk，多余的 rerank_score < 0.01 才丢弃
         2. 动态窗口：高相关多给，低相关少给
         3. 先从 reranked 中取，原文不够从 all_candidates 补充
         """
         data_chunks = []
         wiki_chunks = []
         seen_ids = set()
+        kept_count = 0
 
         for h in reranked:
             cid = h.get("chunk_id", id(h))
             if cid in seen_ids:
                 continue
             seen_ids.add(cid)
-            # 质量门控：rerank_score 过低的 chunk 丢弃
+            # 质量门控：保底保留前 2 个，多余的低分才丢弃
             rerank_score = h.get("rerank_score", h.get("rrf_score", 1.0))
-            if rerank_score < 0.05:
+            if kept_count >= 2 and rerank_score < 0.01:
                 logger.debug(f"丢弃低相关 chunk: {h.get('title', '')[:30]} score={rerank_score:.3f}")
                 continue
+            kept_count += 1
             if h.get("source_type") == "data":
                 data_chunks.append(h)
             else:
