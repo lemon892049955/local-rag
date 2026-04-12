@@ -65,7 +65,7 @@ def _register_handlers(bot):
         text = (ctx.text or "").strip()
         if not text:
             return
-        user_id = ctx.from_user_id
+        user_id = ctx.from_user or "unknown"
         logger.info(f"[iLink] 收到消息: from={user_id}, text={text[:100]}")
         await _handle_text_message(ctx, user_id, text)
 
