@@ -27,6 +27,9 @@ pycryptodome==3.21.0   # 企微消息加解密
 python-multipart==0.0.9  # FastAPI 文件上传
 jieba==0.42.1            # 中文分词（BM25 检索）
 
+# WeChat iLink Bot (v2.5 — 微信个人号机器人)
+wechat-ilink-bot==0.3.0
+
 # Multimodal (v0.4)
 pymupdf==1.24.0         # PDF 解析，~15MB，纯 CPU
 pydub==0.25.1           # 音频分段 (需系统安装 ffmpeg)

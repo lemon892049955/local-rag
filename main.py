@@ -52,16 +52,20 @@ app = FastAPI(
     version="2.2.0",
 )
 
-# 注册企业微信回调路由
+# 注册企业微信回调路由（保留兼容）
 from wecom.callback import router as wecom_router
 app.include_router(wecom_router)
+
+# 注册 iLink Bot 管理路由
+from ilink.api import router as ilink_router
+app.include_router(ilink_router)
 
 # 注册 AI 助手路由
 from assistant.router import router as assistant_router
 app.include_router(assistant_router)
 
 
-# ===== Wiki 编译 Worker + 推送调度器启动 =====
+# ===== Wiki 编译 Worker + 推送调度器 + iLink Bot 启动 =====
 @app.on_event("startup")
 async def startup_event():
     from wiki.compile_queue import start_compile_worker
@@ -75,6 +79,12 @@ async def startup_event():
         logger.info("Reranker 模型预热完成")
     except Exception as e:
         logger.warning(f"Reranker 预热失败（首次搜索时加载）: {e}")
+    # 启动 iLink Bot（微信个人号机器人）
+    try:
+        from ilink.bot import start_bot
+        await start_bot()
+    except Exception as e:
+        logger.warning(f"iLink Bot 启动跳过: {e}")
 
 
 # 全局组件（延迟初始化以加速启动）
