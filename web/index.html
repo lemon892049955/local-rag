@@ -90,6 +90,55 @@
 </head>
 <body class="bg-surface-50 min-h-screen flex" :class="dark&&'dark'">
 
+<!-- ===== 首次欢迎弹窗 ===== -->
+<div x-show="showWelcome" x-transition:enter="transition ease-out duration-300" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100" x-transition:leave="transition ease-in duration-200" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+     class="fixed inset-0 z-[999] flex items-center justify-center bg-black/50 backdrop-blur-sm" @click.self="dismissWelcome()">
+    <div x-transition:enter="transition ease-out duration-300" x-transition:enter-start="opacity-0 scale-90 translate-y-4" x-transition:enter-end="opacity-100 scale-100 translate-y-0"
+         class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-lg w-full mx-4 overflow-hidden">
+        <!-- 顶部渐变 -->
+        <div class="bg-gradient-to-br from-brand-500 to-brand-700 px-8 py-10 text-center">
+            <div class="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg class="w-10 h-10" viewBox="0 0 40 40" fill="none">
+                    <circle cx="12" cy="15" r="2.5" fill="white"/>
+                    <circle cx="22" cy="15" r="2.5" fill="white"/>
+                    <rect x="10" y="22" width="8" height="6" rx="1" fill="white" opacity=".9" transform="rotate(-5 14 25)"/>
+                    <rect x="19" y="22" width="8" height="6" rx="1" fill="white" opacity=".9" transform="rotate(5 23 25)"/>
+                    <line x1="18" y1="21.5" x2="18" y2="28.5" stroke="white" stroke-width="1.2" stroke-linecap="round"/>
+                </svg>
+            </div>
+            <h2 class="text-2xl font-bold text-white mb-1">欢迎来到 BuddyKnow</h2>
+            <p class="text-white/80 text-sm">你的个人知识伙伴</p>
+        </div>
+        <!-- 内容 -->
+        <div class="px-8 py-6">
+            <div class="space-y-4 text-sm text-gray-600 dark:text-gray-300">
+                <div class="flex items-start gap-3">
+                    <span class="w-8 h-8 bg-brand-50 dark:bg-brand-900/30 rounded-lg flex items-center justify-center flex-shrink-0 text-brand-600 text-lg">📥</span>
+                    <div><div class="font-semibold text-gray-800 dark:text-gray-100 mb-0.5">一键入库</div>粘贴链接或上传文件，自动抓取公众号、小红书、知乎等平台内容，AI 智能清洗落库</div>
+                </div>
+                <div class="flex items-start gap-3">
+                    <span class="w-8 h-8 bg-brand-50 dark:bg-brand-900/30 rounded-lg flex items-center justify-center flex-shrink-0 text-brand-600 text-lg">🧠</span>
+                    <div><div class="font-semibold text-gray-800 dark:text-gray-100 mb-0.5">知识编译</div>AI 自动将碎片信息编译为结构化知识网络，持续生长的 Wiki 知识图谱</div>
+                </div>
+                <div class="flex items-start gap-3">
+                    <span class="w-8 h-8 bg-brand-50 dark:bg-brand-900/30 rounded-lg flex items-center justify-center flex-shrink-0 text-brand-600 text-lg">🔍</span>
+                    <div><div class="font-semibold text-gray-800 dark:text-gray-100 mb-0.5">智能搜索</div>自然语言提问，AI 从知识库中检索并综合回答，标注来源可追溯</div>
+                </div>
+                <div class="flex items-start gap-3">
+                    <span class="w-8 h-8 bg-brand-50 dark:bg-brand-900/30 rounded-lg flex items-center justify-center flex-shrink-0 text-brand-600 text-lg">💬</span>
+                    <div><div class="font-semibold text-gray-800 dark:text-gray-100 mb-0.5">AI 助手</div>右下角小精灵，支持多轮对话、意图识别、对话中入库，随时为你服务</div>
+                </div>
+            </div>
+        </div>
+        <!-- 按钮 -->
+        <div class="px-8 pb-6">
+            <button @click="dismissWelcome()" class="w-full py-3 bg-gradient-to-r from-brand-500 to-brand-600 hover:from-brand-600 hover:to-brand-700 text-white font-semibold rounded-xl transition-all hover:shadow-lg hover:shadow-brand-500/25 text-sm">
+                开始探索 ✨
+            </button>
+        </div>
+    </div>
+</div>
+
 <!-- ===== 左侧边栏 ===== -->
 <aside class="bg-white border-r border-gray-200 flex flex-col h-screen sticky top-0 flex-shrink-0 transition-all duration-200"
        :class="sidebarCollapsed?'w-14':'w-56'">
@@ -909,10 +958,12 @@ function app(){
         feedbackSubmitted:false,
         taxCategories:[],newCatName:'',
         showSubscriptions:false,subscriptions:[],subConceptName:'',
+        showWelcome:!localStorage.getItem('bk_welcomed'),
 
         async init(){
             await Promise.all([this.loadStats(),this.loadCategories(),this.loadKnowledge(),this.loadTags(),this.loadTimeline(),this.loadWikiPages(),this.loadWikiTree(),this.loadWikiGraph()]);
         },
+        dismissWelcome(){this.showWelcome=false;localStorage.setItem('bk_welcomed','1')},
         setPage(p){this.prevPage=this.page;this.page=p;if(p==='graph'){this.loadWikiPages();this.loadWikiTree();this.loadWikiGraph()}},
         async loadStats(){try{this.stats=await(await fetch('/stats')).json()}catch(e){}},
         async loadCategories(){try{const d=await(await fetch('/api/categories')).json();this.categories=d.categories||[]}catch(e){}},
