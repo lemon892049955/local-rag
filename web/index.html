@@ -372,17 +372,14 @@
         <div class="h-12 flex items-center px-5 border-b border-gray-100 bg-white/80 backdrop-blur"><h1 class="font-semibold text-gray-800 text-sm">入库新知识</h1></div>
         <div class="p-5 max-w-3xl mx-auto">
             <!-- URL 入库 -->
-            <p class="text-xs text-gray-500 mb-3">粘贴链接，自动完成抓取 → 清洗 → 落库 → Wiki 编译。</p>
+            <p class="text-xs text-gray-500 mb-3">粘贴链接，自动完成抓取 → 清洗 → 落库 → Wiki 编译。可连续添加，自动排队。</p>
             <div class="bg-white rounded-xl border border-gray-100 p-5 mb-4">
                 <div class="flex gap-2">
                     <input x-model="ingestUrl" type="text" placeholder="粘贴链接或分享文本（自动提取URL）"
                         class="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"
-                        @keydown.enter="doIngest()" :disabled="ingestLoading">
-                    <button @click="doIngest()" :disabled="ingestLoading||!ingestUrl.trim()"
-                        class="bg-brand-600 hover:bg-brand-700 disabled:bg-gray-300 text-white px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition">
-                        <span x-show="ingestLoading" class="spinner inline-block mr-1" style="width:14px;height:14px;border-width:2px;vertical-align:middle"></span>
-                        <span x-text="ingestLoading?'处理中...':'入库'"></span>
-                    </button>
+                        @keydown.enter="queueIngest()">
+                    <button @click="queueIngest()" :disabled="!ingestUrl.trim()"
+                        class="bg-brand-600 hover:bg-brand-700 disabled:bg-gray-300 text-white px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition">入库</button>
                 </div>
             </div>
 
@@ -406,52 +403,47 @@
                 </div>
             </div>
 
-            <!-- 批量入库 -->
-            <div class="bg-white rounded-xl border border-gray-100 p-5 mb-4">
-                <div class="text-xs font-medium text-gray-700 mb-3">批量入库 — 多个 URL，每行一个</div>
-                <textarea x-model="batchUrls" rows="5" placeholder="https://example.com/article1&#10;https://mp.weixin.qq.com/s/xxx&#10;https://www.xiaohongshu.com/xxx"
-                    class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 font-mono resize-y"></textarea>
-                <div class="flex justify-between items-center mt-2">
-                    <span class="text-[10px] text-gray-400" x-text="batchUrls.split('\\n').filter(u=>u.trim()).length+' 个链接'"></span>
-                    <button @click="doBatchIngest()" :disabled="batchLoading||!batchUrls.trim()" class="bg-brand-600 hover:bg-brand-700 disabled:bg-gray-300 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition">
-                        <span x-show="batchLoading" class="spinner inline-block mr-1" style="width:12px;height:12px;border-width:2px;vertical-align:middle"></span>
-                        <span x-text="batchLoading?'处理中...':'批量入库'"></span>
-                    </button>
-                </div>
-                <div x-show="batchResult" class="mt-3 text-xs space-y-1">
-                    <div class="font-medium" x-text="`成功 ${batchResult?.success||0} / 失败 ${batchResult?.failed||0} / 共 ${batchResult?.total||0}`"></div>
-                    <template x-for="(r,i) in (batchResult?.results||[])" :key="i">
-                        <div :class="r.success?'text-green-600':'text-red-500'" x-text="(r.success?'✅ ':'❌ ')+r.url+(r.title?' → '+r.title:'')+(r.error?' ('+r.error+')':'')"></div>
-                    </template>
-                </div>
-            </div>
-
-            <!-- 结果展示 -->
-            <!-- 进度条 -->
-            <div x-show="ingestLoading && ingestStages.length" class="bg-white rounded-xl border border-gray-100 p-4 mb-4">
-                <div class="flex items-center justify-between mb-2">
-                    <span class="text-xs font-medium text-gray-700">入库进度</span>
-                    <span class="text-xs text-gray-400" x-text="ingestProgress+'%'"></span>
-                </div>
-                <div class="w-full bg-gray-100 rounded-full h-2 mb-3">
-                    <div class="bg-brand-500 h-2 rounded-full transition-all duration-500" :style="'width:'+ingestProgress+'%'"></div>
-                </div>
-                <div class="space-y-1.5">
-                    <template x-for="(s,i) in ingestStages" :key="i">
-                        <div class="flex items-center gap-2 text-xs">
-                            <span x-show="s.status==='running'" class="spinner" style="width:12px;height:12px;border-width:2px"></span>
-                            <span x-show="s.status==='ok'||s.status==='skip'||s.status==='queued'||s.status==='duplicate'" class="text-green-500">✓</span>
-                            <span x-show="s.status==='error'" class="text-red-500">✗</span>
-                            <span class="text-gray-600" x-text="s.message"></span>
+            <!-- 入库队列 -->
+            <div x-show="ingestQueue.length" class="space-y-3">
+                <div class="text-xs font-medium text-gray-500 mb-1">入库队列</div>
+                <template x-for="(task,ti) in ingestQueue" :key="task.id">
+                    <div class="bg-white rounded-xl border p-4" :class="task.status==='done'?(task.success?'border-green-200':'border-red-200'):(task.status==='running'?'border-brand-200':'border-gray-100')">
+                        <!-- URL -->
+                        <div class="flex items-center gap-2 mb-2">
+                            <span x-show="task.status==='waiting'" class="text-gray-400 text-xs">⏳</span>
+                            <span x-show="task.status==='running'" class="spinner" style="width:14px;height:14px;border-width:2px"></span>
+                            <span x-show="task.status==='done'&&task.success" class="text-green-500 text-sm">✓</span>
+                            <span x-show="task.status==='done'&&!task.success" class="text-red-500 text-sm">✗</span>
+                            <span class="text-xs text-gray-500 truncate flex-1" x-text="task.url"></span>
                         </div>
-                    </template>
-                </div>
-            </div>
-            <div x-show="ingestResult" class="bg-white rounded-xl border p-4 text-sm" :class="ingestResult?.success?'border-green-200 bg-green-50':'border-red-200 bg-red-50'">
-                <div class="font-medium" x-text="ingestResult?.success?'✅ 入库成功':'❌ 失败'"></div>
-                <div class="text-xs mt-1 text-gray-600" x-text="ingestResult?.title?'标题: '+ingestResult.title:ingestResult?.error||''"></div>
-                <div class="text-xs mt-1 text-gray-500" x-show="ingestResult?.message" x-text="ingestResult?.message"></div>
-                <div class="flex gap-1 mt-2 flex-wrap"><template x-for="t in (ingestResult?.tags||[])" :key="t"><span class="tag bg-green-100 text-green-700" x-text="t"></span></template></div>
+                        <!-- 进度条 (运行中) -->
+                        <div x-show="task.status==='running'" class="mb-2">
+                            <div class="w-full bg-gray-100 rounded-full h-1.5">
+                                <div class="bg-brand-500 h-1.5 rounded-full transition-all duration-500" :style="'width:'+task.progress+'%'"></div>
+                            </div>
+                        </div>
+                        <!-- 阶段详情 -->
+                        <div x-show="task.stages.length" class="space-y-1 mb-2">
+                            <template x-for="(s,si) in task.stages" :key="si">
+                                <div class="flex items-center gap-1.5 text-[11px]">
+                                    <span x-show="s.status==='running'" class="spinner" style="width:10px;height:10px;border-width:1.5px"></span>
+                                    <span x-show="s.status==='ok'||s.status==='skip'||s.status==='queued'||s.status==='duplicate'" class="text-green-500 text-[10px]">✓</span>
+                                    <span x-show="s.status==='error'" class="text-red-500 text-[10px]">✗</span>
+                                    <span x-show="s.status==='waiting'" class="text-gray-300 text-[10px]">○</span>
+                                    <span class="text-gray-600" x-text="s.message"></span>
+                                </div>
+                            </template>
+                        </div>
+                        <!-- 完成结果 -->
+                        <div x-show="task.status==='done'&&task.success" class="mt-2">
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <span @click="openDetailByFilepath(task.result?.file_path||'')" class="text-xs text-brand-600 font-medium cursor-pointer hover:underline" x-text="task.result?.title||'查看详情'"></span>
+                                <template x-for="t in (task.result?.tags||[])" :key="t"><span class="tag bg-green-100 text-green-700" x-text="t"></span></template>
+                            </div>
+                        </div>
+                        <div x-show="task.status==='done'&&!task.success" class="text-xs text-red-500 mt-1" x-text="task.error||'入库失败'"></div>
+                    </div>
+                </template>
             </div>
         </div>
     </div>
@@ -480,10 +472,11 @@
                     <div class="prose text-sm" x-html="highlightText(renderMd(searchResult?.answer||''), searchResult?.highlight_keywords||[])"></div>
                 </div>
                 <template x-for="(src,i) in (searchResult?.sources||[])" :key="i">
-                    <div class="bg-white rounded-lg border border-gray-100 p-3 flex items-center gap-3">
+                    <div @click="openDetailByTitle(src.title,src.source_url)" class="bg-white rounded-lg border border-gray-100 p-3 flex items-center gap-3 cursor-pointer hover:border-brand-300 hover:bg-brand-50/30 transition group">
                         <div class="w-5 h-5 bg-brand-50 text-brand-600 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0" x-text="i+1"></div>
-                        <div class="flex-1 min-w-0"><div class="text-xs font-medium text-gray-700 truncate" x-text="src.title"></div></div>
+                        <div class="flex-1 min-w-0"><div class="text-xs font-medium text-gray-700 group-hover:text-brand-600 truncate" x-text="src.title"></div></div>
                         <span class="text-[10px] text-gray-400 flex-shrink-0" x-text="src.match_type||('距离:'+src.distance)"></span>
+                        <svg class="w-3.5 h-3.5 text-gray-300 group-hover:text-brand-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
                     </div>
                 </template>
             </div>
@@ -899,7 +892,7 @@ function app(){
         tagStats:[],timeline:[],
         detailData:null,detailLoading:false,editMode:false,editContent:'',editSaving:false,
         hoveredNode:null,tooltipX:0,tooltipY:0,
-        ingestUrl:'',ingestLoading:false,ingestResult:null,ingestStages:[],ingestProgress:0,
+        ingestUrl:'',ingestQueue:[],ingestQueueId:0,ingestProcessing:false,
         uploadLoading:false,uploadStatus:'',
         searchQuery:'',searchLoading:false,searchResult:null,
         quickSearch:'',simulation:null,
@@ -907,7 +900,6 @@ function app(){
         wikiInspect:null,wikiLogContent:'',wikiGraphData:null,graphMinCount:2,
         wikiHoveredNode:null,wikiTooltipX:0,wikiTooltipY:0,wikiShowList:true,selectedTagNode:null,
         wikiEditMode:false,wikiEditContent:'',wikiEditSaving:false,
-        batchUrls:'',batchLoading:false,batchResult:null,
         feedbackSubmitted:false,
         taxCategories:[],newCatName:'',
         showSubscriptions:false,subscriptions:[],subConceptName:'',
@@ -924,7 +916,7 @@ function app(){
 
         // Wiki 方法
         async loadWikiPages(){try{const d=await(await fetch('/api/wiki/pages')).json();this.wikiPages=d.pages||[]}catch(e){}},
-        async loadWikiTree(){try{const d=await(await fetch('/api/wiki/tree')).json();this.wikiTree=(d.folders||[]).map(f=>({...f,open:false}));if(this.wikiTree.length)this.wikiTree[0].open=true}catch(e){}},
+        async loadWikiTree(){try{const d=await(await fetch('/api/wiki/tree')).json();this.wikiTree=(d.folders||[]).map(f=>({...f,open:false}))}catch(e){}},
         async openWikiDetail(wp){this.prevPage=this.page;this.page='wikiDetail';this.wikiDetailLoading=true;this.wikiDetailData=null;try{this.wikiDetailData=await(await fetch('/api/wiki/page/'+encodeURIComponent(wp.path.split('/')[0])+'/'+encodeURIComponent(wp.path.split('/')[1]))).json()}catch(e){}this.wikiDetailLoading=false},
         async runWikiInspect(){try{this.wikiInspect=await(await fetch('/api/wiki/inspect',{method:'POST'})).json()}catch(e){}},
         async loadWikiLog(){try{const d=await(await fetch('/api/wiki/log')).json();this.wikiLogContent=d.content||''}catch(e){}},
@@ -1053,37 +1045,62 @@ function app(){
         openDetailByPath(path){const item=this.knowledgeList.find(i=>i.file_path===path);if(item)this.openDetail(item);else this.openDetailByFilepath(path)},
         openDetailByFilepath(fp){const fn=fp.split('/').pop();this.prevPage=this.page;this.page='detail';this.detailLoading=true;this.detailData=null;this.editMode=false;fetch('/api/knowledge/'+encodeURIComponent(fn)).then(r=>{if(r.ok)return r.json();throw new Error('not found')}).then(d=>{this.detailData=d;this.detailLoading=false}).catch(()=>{this.detailLoading=false;this.detailData={meta:{title:'文章未找到'},content:'该文章可能已被删除。'}})},
         openDetailByFilename(fn){const item=this.knowledgeList.find(i=>i.file_path.endsWith(fn));if(item){this.openDetail(item)}else{this.prevPage=this.page;this.page='detail';this.detailLoading=true;this.detailData=null;this.editMode=false;fetch('/api/knowledge/'+encodeURIComponent(fn)).then(r=>r.json()).then(d=>{this.detailData=d;this.detailLoading=false}).catch(()=>{this.detailLoading=false})}},
+        openDetailByTitle(title,sourceUrl){
+            const item=this.knowledgeList.find(i=>i.title===title);
+            if(item){this.openDetail(item);return}
+            // 搜索结果可能来自 wiki，尝试在 wikiPages 中查找
+            const wp=this.wikiPages.find(p=>p.title===title);
+            if(wp){this.openWikiDetail(wp);return}
+            // 都没找到，用 source_url 打开
+            if(sourceUrl){window.open(sourceUrl,'_blank')}
+        },
         async saveEdit(){if(!this.editContent.trim()||this.editSaving)return;this.editSaving=true;try{const fn=this.detailData?.filename;const r=await fetch('/api/knowledge/'+encodeURIComponent(fn),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:this.editContent})});if(r.ok){this.detailData.content=this.editContent;this.editMode=false}}catch(e){}this.editSaving=false},
         formatSourceTitle(fn){return fn.replace(/^\d{6}_[a-zA-Z0-9]+_/,'').replace(/\.md$/,'').replace(/_/g,' ')},
         guessPlatform(fn){if(fn.includes('公众号')||fn.includes('wechat'))return'wechat';if(fn.includes('小红书')||fn.includes('xiaohongshu'))return'xiaohongshu';return'general'},
-        async doIngest(){if(!this.ingestUrl.trim()||this.ingestLoading)return;this.ingestLoading=true;this.ingestResult=null;this.ingestStages=[];this.ingestProgress=0;try{
+        async doIngest(){/* legacy, replaced by queueIngest */},
+        // 入库队列
+        queueIngest(){
             let url=this.ingestUrl.trim();
             const urlMatch=url.match(/https?:\/\/[^\s<>"'，。！？、）\]】}]+/);
             if(urlMatch)url=urlMatch[0].replace(/[.,;:!?)}\]>]+$/,'');
-            if(!url.startsWith('http')){this.ingestResult={success:false,error:'未找到有效链接，请粘贴包含 http:// 或 https:// 的链接'};this.ingestLoading=false;return}
-            const resp=await fetch('/ingest/stream',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:url})});
-            const reader=resp.body.getReader();const decoder=new TextDecoder();let buffer='';
-            while(true){
-                const{done,value}=await reader.read();if(done)break;
-                buffer+=decoder.decode(value,{stream:true});const lines=buffer.split('\n');buffer=lines.pop();
-                for(const line of lines){
-                    if(!line.startsWith('data: '))continue;
-                    try{
-                        const data=JSON.parse(line.slice(6));
-                        if(data.stage==='result'){
-                            this.ingestResult=data.result||{success:data.status==='ok'};
-                            if(this.ingestResult.success){this.ingestUrl='';await Promise.all([this.loadKnowledge(),this.loadStats(),this.loadCategories(),this.loadTags(),this.loadTimeline(),this.loadWikiPages(),this.loadWikiTree(),this.loadWikiGraph()])}
-                        }else if(data.stage&&data.stage!=='done'){
-                            this.ingestProgress=data.progress||0;
-                            const existing=this.ingestStages.findIndex(s=>s.stage===data.stage);
-                            if(existing>=0){this.ingestStages[existing]={...data}}else{this.ingestStages.push({...data})}
-                        }else if(data.stage==='done'){
-                            this.ingestProgress=100;
-                        }
-                    }catch(e){}
+            if(!url.startsWith('http'))return;
+            this.ingestQueueId++;
+            this.ingestQueue.unshift({id:this.ingestQueueId,url,status:'waiting',progress:0,stages:[],result:null,success:false,error:''});
+            this.ingestUrl='';
+            this._processQueue();
+        },
+        async _processQueue(){
+            if(this.ingestProcessing)return;
+            const task=this.ingestQueue.find(t=>t.status==='waiting');
+            if(!task)return;
+            this.ingestProcessing=true;
+            task.status='running';
+            try{
+                const resp=await fetch('/ingest/stream',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:task.url})});
+                const reader=resp.body.getReader();const decoder=new TextDecoder();let buffer='';
+                while(true){
+                    const{done,value}=await reader.read();if(done)break;
+                    buffer+=decoder.decode(value,{stream:true});const lines=buffer.split('\n');buffer=lines.pop();
+                    for(const line of lines){
+                        if(!line.startsWith('data: '))continue;
+                        try{
+                            const data=JSON.parse(line.slice(6));
+                            if(data.stage==='result'){
+                                task.result=data.result||{};task.success=!!task.result.success;task.status='done';
+                                if(task.success)await Promise.all([this.loadKnowledge(),this.loadStats(),this.loadWikiPages(),this.loadWikiTree(),this.loadWikiGraph()]);
+                            }else if(data.stage&&data.stage!=='done'){
+                                task.progress=data.progress||0;
+                                const ei=task.stages.findIndex(s=>s.stage===data.stage);
+                                if(ei>=0){task.stages[ei]={...data}}else{task.stages.push({...data})}
+                            }else if(data.stage==='done'){task.progress=100}
+                        }catch(e){}
+                    }
                 }
-            }
-        }catch(e){this.ingestResult={success:false,error:e.message}}this.ingestLoading=false},
+                if(task.status!=='done'){task.status='done';task.success=false;task.error='未获得结果'}
+            }catch(e){task.status='done';task.success=false;task.error=e.message}
+            this.ingestProcessing=false;
+            this._processQueue();
+        },
         async doSearch(){if(!this.searchQuery.trim()||this.searchLoading)return;this.searchLoading=true;this.searchResult=null;this.searchStreamAnswer='';this.searchStreamSources=[];try{const r=await fetch('/search/stream',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:this.searchQuery.trim(),top_k:3})});if(!r.ok){const e=await r.json().catch(()=>({detail:'服务器错误'}));this.searchResult={answer:'搜索失败: '+(e.detail||'未知错误'),sources:[]};this.searchLoading=false;return}const reader=r.body.getReader();const decoder=new TextDecoder();let buffer='';let fullAnswer='';let sources=[];while(true){const{done,value}=await reader.read();if(done)break;buffer+=decoder.decode(value,{stream:true});const lines=buffer.split('\n');buffer=lines.pop()||'';for(const line of lines){if(!line.startsWith('data: '))continue;try{const evt=JSON.parse(line.slice(6));if(evt.type==='sources'){sources=evt.sources||[];this.searchStreamSources=sources;this.searchResult={answer:'',sources,highlight_keywords:evt.debug?.highlight_keywords||[]}}else if(evt.type==='token'){fullAnswer+=evt.content;this.searchStreamAnswer=fullAnswer;this.searchResult={answer:fullAnswer,sources,highlight_keywords:this.searchResult?.highlight_keywords||[]}}else if(evt.type==='done'){this.searchResult={answer:fullAnswer,sources,highlight_keywords:this.searchResult?.highlight_keywords||[]}}}catch(e){}}}if(!this.searchResult||!this.searchResult.answer){this.searchResult={answer:'未获得有效回答',sources:[]}}}catch(e){this.searchResult={answer:e.name==='AbortError'?'搜索超时，请稍后重试':'搜索失败: '+e.message,sources:[]}}this.searchLoading=false},
 
         // 文件上传
@@ -1140,19 +1157,6 @@ function app(){
                 result = result.replace(re, match => `<mark class="bg-yellow-200 text-yellow-900 rounded px-0.5">${match}</mark>`);
             });
             return result;
-        },
-
-        // 批量入库
-        async doBatchIngest(){
-            const urls=this.batchUrls.split('\n').map(u=>u.trim()).filter(u=>u.startsWith('http'));
-            if(!urls.length||this.batchLoading)return;
-            this.batchLoading=true;this.batchResult=null;
-            try{
-                const r=await fetch('/ingest/batch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({urls})});
-                if(r.ok){this.batchResult=await r.json();if(this.batchResult.success>0){this.batchUrls='';await Promise.all([this.loadKnowledge(),this.loadStats(),this.loadWikiPages(),this.loadWikiGraph()])}}
-                else{this.batchResult={total:urls.length,success:0,failed:urls.length,results:[]}}
-            }catch(e){this.batchResult={total:urls.length,success:0,failed:urls.length,results:[{error:e.message}]}}
-            this.batchLoading=false;
         },
 
         // Wiki 编辑

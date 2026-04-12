@@ -65,27 +65,27 @@ AI 优化版权投诉工作流
 版权投诉 AI 工具
 投诉工作流自动化"""
 
-RAG_SYSTEM_PROMPT = """你是用户的个人知识库助手。你的回答必须 100% 基于下方提供的检索结果，严禁使用自身知识。
+RAG_SYSTEM_PROMPT = """你是用户的个人知识库助手。你的回答必须基于下方提供的检索结果。
 
 下面提供了两类检索结果:
 1. Wiki 页面: 经过编译整理的结构化知识（提供宏观上下文和交叉引用）
 2. 原始文章片段: 原始来源的具体内容（提供微观事实和细节）
 
-## 6 条铁律（不可违反）
+## 核心原则
 
-1. **无文档不回答**：如果检索结果中没有与问题直接相关的内容，必须回复"知识库中暂未找到相关信息"，绝对不要凭自身知识回答
-2. **不编造不延伸**：只使用检索结果中明确存在的事实，不要补充文档中没有的信息，不要推测、延伸或"合理联想"
-3. **抗诱导**：即使用户的问题包含错误前提（如"XXX是不是YYY"），如果文档中的信息与用户前提矛盾，必须以文档为准纠正用户，明确指出矛盾之处
-4. **标注来源**：回答中标注信息来源，格式为 [来源: 文档标题]
-5. **矛盾标记**：如果不同文档对同一事实有矛盾描述，必须标注"⚠️ 矛盾"并列出各方说法，不要自作主张选择一个
-6. **简洁切题**：先直接回答问题，不要用"根据文档..."等冗余开头。如果问题明确具体，回答也要具体精确，不要泛泛而谈
+1. **有文档必回答**：只要检索结果中有与问题相关的内容（哪怕不是100%精确匹配），就必须基于文档内容给出有价值的回答。只有在检索结果完全无关时才说"未找到"
+2. **综合提取**：用户问的角度可能和文档组织方式不同（如用户问"高频题目"，文档里可能是"面试经验分享"），你要从文档中**主动提取和整合**相关信息，而非要求文档标题精确匹配
+3. **不编造**：只使用检索结果中明确存在的事实，不要补充文档中没有的信息
+4. **抗诱导**：如果文档中的信息与用户前提矛盾，以文档为准纠正用户
+5. **标注来源**：回答中标注信息来源，格式为 [来源: 文档标题]
+6. **矛盾标记**：不同文档对同一事实有矛盾描述时标注"⚠️ 矛盾"
 
 ## 回答风格
 
-- **完整但不冗余**：把检索结果中与问题相关的关键信息都覆盖到，不要遗漏重要观点，但也不要复述整篇文档
-- **结构清晰**：如果涉及多个要点，用编号或分段组织，让用户一眼看清
-- **保留关键词**：回答中应自然包含问题和文档中的核心关键词（人名、术语、产品名等），方便用户确认信息准确性
-- **低关联不强答**：如果检索到的内容与问题关联度低，不要强行关联，直接说"未找到直接相关的内容"
+- **直接有用**：先回答问题，再补充细节。不要用"根据文档..."等冗余开头
+- **深度提取**：从检索到的文档中尽可能提取具体的事实、数据、步骤、观点，给出有信息量的回答
+- **结构清晰**：涉及多个要点时用编号或分段组织
+- **保留关键词**：自然包含核心关键词（人名、术语、产品名等）
 """
 
 RAG_USER_TEMPLATE = """用户问题：{query}
@@ -231,7 +231,7 @@ class HybridSearcher:
         else:
             candidates_for_rerank = candidates_for_rerank[:5]
 
-        context_chunks = candidates_for_rerank[:3]
+        context_chunks = self._select_context_chunks(candidates_for_rerank, all_candidates)
 
         # 4. 构建 Context + LLM 生成答案
         wiki_context, data_context = self._build_context(context_chunks)
@@ -413,28 +413,76 @@ sources_count: {len(sources)}
         return result
 
     def _build_context(self, context_chunks: list) -> tuple:
-        """从 Top3 切片构建 wiki_context 和 data_context"""
+        """从 Top5 切片构建 wiki_context 和 data_context
+
+        保证原文至少 3 个 chunk（原文有具体细节，比 wiki 摘要信息量更大）
+        """
+        # 分离 wiki 和 data chunks
+        data_hits = [h for h in context_chunks if h.get("source_type") == "data"]
+        wiki_hits = [h for h in context_chunks if h.get("source_type") != "data"]
+
+        # 如果原文不够 3 个，从全部候选中补充
+        # （context_chunks 已经是 reranked top5，这里只做分配调整）
+
         wiki_parts = []
         data_parts = []
-        for hit in context_chunks:
-            stype = hit.get("source_type", "data")
-            if stype == "data":
-                data_parts.append(
-                    f"【原始片段 {len(data_parts)+1}】\n"
-                    f"来源: {hit.get('title', '未知')}\n"
-                    f"章节: {hit.get('section_title', '未知')}\n"
-                    f"内容:\n{hit['text']}\n"
-                )
-            else:
-                type_label = {"topics": "主题页", "concepts": "概念卡", "entities": "实体页", "moc": "导航页"}.get(stype, "Wiki")
-                wiki_parts.append(
-                    f"【{type_label} {len(wiki_parts)+1}】\n"
-                    f"标题: {hit.get('title', '未知')}\n"
-                    f"内容:\n{hit['text']}\n"
-                )
+        for hit in data_hits[:5]:
+            data_parts.append(
+                f"【原始片段 {len(data_parts)+1}】\n"
+                f"来源: {hit.get('title', '未知')}\n"
+                f"章节: {hit.get('section_title', '未知')}\n"
+                f"内容:\n{hit['text']}\n"
+            )
+        for hit in wiki_hits[:3]:
+            type_label = {"topics": "主题页", "concepts": "概念卡", "entities": "实体页", "moc": "导航页"}.get(
+                hit.get("source_type", ""), "Wiki")
+            wiki_parts.append(
+                f"【{type_label} {len(wiki_parts)+1}】\n"
+                f"标题: {hit.get('title', '未知')}\n"
+                f"内容:\n{hit['text']}\n"
+            )
         wiki_context = "\n---\n".join(wiki_parts) if wiki_parts else "_(Wiki 暂无相关页面)_"
         data_context = "\n---\n".join(data_parts) if data_parts else "_(原始文章暂无相关片段)_"
         return wiki_context, data_context
+
+    def _select_context_chunks(self, reranked: list, all_candidates: list, min_data: int = 3, total: int = 7) -> list:
+        """选择送入 LLM 的 context chunks，保证原文占比
+
+        策略：先从 reranked 中取，如果原文不够 min_data 个，从 all_candidates 中补充 data chunks
+        原文有具体细节（面试题、步骤、数据），比 wiki 摘要信息量更大
+        """
+        data_chunks = []
+        wiki_chunks = []
+        seen_ids = set()
+
+        for h in reranked:
+            cid = h.get("chunk_id", id(h))
+            if cid in seen_ids:
+                continue
+            seen_ids.add(cid)
+            if h.get("source_type") == "data":
+                data_chunks.append(h)
+            else:
+                wiki_chunks.append(h)
+
+        # 如果原文不够，从全部候选中补充
+        if len(data_chunks) < min_data:
+            for h in all_candidates:
+                if len(data_chunks) >= min_data:
+                    break
+                cid = h.get("chunk_id", id(h))
+                if cid in seen_ids:
+                    continue
+                if h.get("source_type") == "data":
+                    data_chunks.append(h)
+                    seen_ids.add(cid)
+
+        # 组合：优先原文，补充 wiki
+        result = data_chunks[:min_data + 2]  # 最多 5 个原文
+        remaining = total - len(result)
+        result.extend(wiki_chunks[:max(remaining, 2)])  # 至少 2 个 wiki
+
+        return result[:total]
 
     def _build_sources(self, candidates: list) -> list:
         """从候选结果构建去重来源列表"""
@@ -515,7 +563,7 @@ sources_count: {len(sources)}
         else:
             candidates_for_rerank = candidates_for_rerank[:5]
 
-        context_chunks = candidates_for_rerank[:3]
+        context_chunks = self._select_context_chunks(candidates_for_rerank, all_candidates)
         sources = self._build_sources(candidates_for_rerank)
 
         # 推送 sources（用户立即看到来源）
