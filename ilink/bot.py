@@ -14,62 +14,132 @@ logger = logging.getLogger(__name__)
 # 全局 Bot 实例
 _bot = None
 _bot_running = False
+_handlers_registered = False
 
 
-def get_bot():
+def get_bot(use_current_user=True):
     """获取全局 Bot 实例"""
     global _bot
     if _bot is None:
         from wechat_bot import Bot
-        _bot = Bot(use_current_user=True)  # 优先使用缓存的登录态
+        # 尝试从文件读取 token
+        token = _load_saved_token()
+        if token:
+            _bot = Bot(token=token)
+            logger.info("[iLink] 使用保存的 token 初始化 Bot")
+        else:
+            _bot = Bot(use_current_user=use_current_user)
     return _bot
+
+
+def _load_saved_token() -> Optional[str]:
+    """从文件加载保存的 token"""
+    import json
+    from pathlib import Path
+    token_file = Path("/app/.ilink_token.json")
+    if not token_file.exists():
+        # 也检查当前目录
+        token_file = Path(".ilink_token.json")
+    if token_file.exists():
+        try:
+            data = json.loads(token_file.read_text())
+            token = data.get("bot_token", "")
+            if token:
+                logger.info(f"[iLink] 从 {token_file} 加载 token")
+                return token
+        except Exception as e:
+            logger.warning(f"[iLink] 读取 token 文件失败: {e}")
+    return None
+
+
+def _register_handlers(bot):
+    """注册消息处理器（只注册一次）"""
+    global _handlers_registered
+    if _handlers_registered:
+        return
+    from wechat_bot import Filter
+
+    @bot.on_message(Filter.text())
+    async def on_text(ctx):
+        """处理所有文本消息（含链接）"""
+        text = (ctx.text or "").strip()
+        if not text:
+            return
+        user_id = ctx.from_user_id
+        logger.info(f"[iLink] 收到消息: from={user_id}, text={text[:100]}")
+        await _handle_text_message(ctx, user_id, text)
+
+    _handlers_registered = True
+    logger.info("[iLink] 消息处理器已注册")
 
 
 async def start_bot():
     """启动 iLink Bot（后台长轮询）
 
-    在 FastAPI startup 事件中调用。
-    注册消息 handler，开始监听微信消息。
+    如果有缓存的登录态则自动启动，否则跳过等待手动登录。
     """
     global _bot_running
     if _bot_running:
         logger.info("iLink Bot 已在运行中")
-        return
+        return True
 
     try:
-        from wechat_bot import Bot, Filter
-        bot = get_bot()
-
-        # ===== 注册消息处理器 =====
-
-        @bot.on_message(Filter.text())
-        async def on_text(ctx):
-            """处理文本消息"""
-            text = ctx.text.strip()
-            user_id = ctx.from_user_id
-            logger.info(f"[iLink] 收到文本消息: from={user_id}, text={text[:100]}")
-            await _handle_text_message(ctx, user_id, text)
-
-        @bot.on_message(Filter.link())
-        async def on_link(ctx):
-            """处理链接消息（微信分享的文章等）"""
-            url = ctx.url or ""
-            title = ctx.title or ""
-            user_id = ctx.from_user_id
-            logger.info(f"[iLink] 收到链接消息: from={user_id}, title={title[:50]}")
-            if url:
-                await ctx.reply("📥 已收到链接，正在入库...")
-                asyncio.create_task(_process_ingest(ctx, user_id, url))
+        from wechat_bot import Bot
+        bot = get_bot(use_current_user=True)
+        _register_handlers(bot)
 
         # 启动 Bot（非阻塞方式）
         asyncio.create_task(_run_bot(bot))
         _bot_running = True
         logger.info("iLink Bot 启动成功，等待消息...")
+        return True
 
     except ImportError:
-        logger.warning("wechat-ilink-bot 未安装，iLink Bot 功能不可用。pip install wechat-ilink-bot")
+        logger.warning("wechat-ilink-bot 未安装，iLink Bot 功能不可用")
+        return False
     except Exception as e:
-        logger.error(f"iLink Bot 启动失败: {e}")
+        logger.warning(f"iLink Bot 启动跳过（需要先登录）: {e}")
+        return False
+
+
+async def login_bot():
+    """扫码登录并启动 Bot
+
+    返回登录结果，包含 account_id 等信息。
+    调用方需要引导用户扫描二维码。
+    """
+    global _bot, _bot_running
+    try:
+        from wechat_bot import Bot
+
+        # 重置状态
+        if _bot:
+            try:
+                await _bot.stop()
+            except Exception:
+                pass
+        _bot = Bot(use_current_user=False)
+        _bot_running = False
+
+        bot = _bot
+        _register_handlers(bot)
+
+        # 登录（会在终端打印二维码）
+        result = await bot.login()
+        logger.info(f"[iLink] 登录成功: account_id={result.account_id}")
+
+        # 启动消息监听
+        asyncio.create_task(_run_bot(bot))
+        _bot_running = True
+
+        return {
+            "success": True,
+            "account_id": result.account_id,
+            "user_id": result.user_id,
+        }
+    except Exception as e:
+        logger.error(f"[iLink] 登录失败: {e}")
+        return {"success": False, "error": str(e)}
 
 
 async def _run_bot(bot):
