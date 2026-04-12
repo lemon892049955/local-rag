@@ -592,12 +592,12 @@
         <!-- 按钮本体：圆球小精灵 -->
         <div @click="chatOpen=true;suggestTip=''" class="bot-btn w-14 h-14 bg-gradient-to-br from-brand-400 to-brand-600 hover:from-brand-500 hover:to-brand-700 rounded-full flex items-center justify-center cursor-pointer shadow-2xl hover:shadow-brand-500/40 transition-all hover:scale-110 relative">
             <svg class="w-10 h-10" viewBox="0 0 40 40" fill="none">
-                <!-- 两只圆眼睛 -->
-                <circle class="bot-eye" cx="14" cy="17" r="2.5" fill="white"/>
-                <circle class="bot-eye" cx="26" cy="17" r="2.5" fill="white"/>
+                <!-- 两只圆眼睛（偏左上，像在看左上方） -->
+                <circle class="bot-eye" cx="12" cy="15" r="2.5" fill="white"/>
+                <circle class="bot-eye" cx="22" cy="15" r="2.5" fill="white"/>
                 <!-- 小书本 -->
-                <path d="M13 25 C13 23.5 16 23 20 23 C24 23 27 23.5 27 25" stroke="white" stroke-width="1.5" stroke-linecap="round" fill="none"/>
-                <path d="M20 23 V26" stroke="white" stroke-width="1" stroke-linecap="round"/>
+                <path d="M11 24 C11 22.5 15 22 19 22 C23 22 27 22.5 27 24" stroke="white" stroke-width="1.5" stroke-linecap="round" fill="none"/>
+                <path d="M19 22 V25" stroke="white" stroke-width="1" stroke-linecap="round"/>
             </svg>
             <span x-show="unreadCount>0" class="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full text-[10px] flex items-center justify-center font-bold" x-text="unreadCount"></span>
         </div>
