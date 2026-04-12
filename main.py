@@ -45,9 +45,9 @@ def _safe_wiki_path(subdir: str, filename: str) -> str:
     return f"{subdir}/{filename}"
 
 app = FastAPI(
-    title="Local RAG - 个人碎片知识落库系统",
-    description="本地化优先的个人知识资产管理与 RAG 问答系统（v0.5 智能助手）",
-    version="0.6.3",
+    title="BuddyKnow - 个人碎片知识落库系统",
+    description="本地化优先的个人知识资产管理与 RAG 问答系统（v2.2 最优组合版）",
+    version="2.2.0",
 )
 
 # 注册企业微信回调路由
@@ -116,6 +116,9 @@ def get_searcher():
 class IngestRequest(BaseModel):
     url: str
 
+class BatchIngestRequest(BaseModel):
+    urls: list[str]
+
 class IngestResponse(BaseModel):
     success: bool
     file_path: str
@@ -131,6 +134,7 @@ class SearchResponse(BaseModel):
     answer: str
     sources: list
     debug: dict = {}
+    highlight_keywords: list[str] = []
 
 
 # ===== 端点 =====
@@ -259,6 +263,35 @@ async def ingest_upload(file: UploadFile = File(...)):
             pass
 
 
+@app.post("/ingest/batch")
+async def ingest_batch(req: BatchIngestRequest):
+    """批量入库 — 多个 URL 逐条入库"""
+    if not req.urls:
+        raise HTTPException(status_code=400, detail="URL 列表不能为空")
+
+    import asyncio
+    from services.ingest_pipeline import ingest_url
+
+    results = []
+    for url in req.urls:
+        url = url.strip()
+        if not url:
+            continue
+        try:
+            result = await ingest_url(url)
+            results.append({"url": url, **result})
+        except Exception as e:
+            results.append({"url": url, "success": False, "error": str(e)})
+
+    success_count = sum(1 for r in results if r.get("success"))
+    return {
+        "total": len(results),
+        "success": success_count,
+        "failed": len(results) - success_count,
+        "results": results,
+    }
+
+
 @app.post("/search", response_model=SearchResponse)
 async def search(req: SearchRequest):
     """检索接口 - 语义搜索 + RAG 答案生成"""
@@ -275,6 +308,7 @@ async def search(req: SearchRequest):
         answer=result["answer"],
         sources=result["sources"],
         debug=result.get("debug", {}),
+        highlight_keywords=result.get("highlight_keywords", []),
     )
 
 
@@ -305,6 +339,37 @@ async def reindex():
     return {"success": True, "total_chunks": total}
 
 
+@app.get("/health")
+async def health():
+    """健康检查 — 快速探活端点"""
+    checks = {"api": "ok"}
+    # ChromaDB
+    try:
+        count = get_indexer().get_stats().get("total_chunks", 0)
+        checks["vectordb"] = "ok" if count >= 0 else "error"
+        checks["total_chunks"] = count
+    except Exception as e:
+        checks["vectordb"] = f"error: {e}"
+    # LLM
+    try:
+        from config import get_llm_config
+        config = get_llm_config()
+        checks["llm"] = "ok" if config.get("api_key") else "no_key"
+    except Exception as e:
+        checks["llm"] = f"error: {e}"
+    # Data dir
+    checks["data_dir"] = "ok" if DATA_DIR.exists() else "missing"
+    from config import WIKI_DIR
+    checks["wiki_dir"] = "ok" if WIKI_DIR.exists() else "missing"
+    checks["knowledge_files"] = len(list(DATA_DIR.glob("*.md")))
+
+    ok_values = {"ok", True}
+    overall = "ok" if all(
+        (v in ok_values) or isinstance(v, int) for v in checks.values()
+    ) else "degraded"
+    return {"status": overall, **checks}
+
+
 @app.get("/stats")
 async def stats():
     """系统状态"""
@@ -332,7 +397,7 @@ async def root():
     index_path = BASE_DIR / "web" / "index.html"
     if index_path.exists():
         return FileResponse(index_path)
-    return {"name": "Local RAG", "version": "0.6.3", "hint": "Web UI not found, visit /docs"}
+    return {"name": "BuddyKnow", "version": "2.2.0", "hint": "Web UI not found, visit /docs"}
 
 
 # ===== Wiki API =====
@@ -467,6 +532,17 @@ async def get_wiki_tree():
     return {"folders": result, "total_pages": len(pages)}
 
 
+@app.post("/api/wiki/reclassify")
+async def reclassify_wiki():
+    """重新分类所有 Wiki 页面 — 清空 taxonomy 后逐个用 LLM 动态分类"""
+    from wiki.taxonomy import init_taxonomy_from_existing, _reclassify_running
+    if _reclassify_running:
+        raise HTTPException(status_code=409, detail="重分类正在进行中，请稍后再试")
+    import asyncio
+    asyncio.create_task(init_taxonomy_from_existing())
+    return {"success": True, "message": "重分类已启动（后台执行中）"}
+
+
 @app.get("/api/wiki/log")
 async def get_wiki_log():
     """获取 Wiki 操作日志"""
@@ -504,6 +580,40 @@ async def wiki_inspect():
     """Wiki 健康检查"""
     from wiki.inspector import inspect
     return inspect()
+
+
+@app.put("/api/wiki/page/{subdir}/{filename}")
+async def update_wiki_page(subdir: str, filename: str, req: dict):
+    """编辑 Wiki 页面 — 修改正文内容"""
+    page_path = _safe_wiki_path(subdir, filename)
+    from wiki.page_store import read_page, create_page
+    page = read_page(page_path)
+    if not page:
+        raise HTTPException(status_code=404, detail="Wiki 页面不存在")
+
+    new_body = req.get("content", "").strip()
+    if not new_body:
+        raise HTTPException(status_code=400, detail="内容不能为空")
+
+    # 重建页面：保留原 meta + 新 body
+    import yaml
+    from datetime import datetime
+    meta = page.get("meta", {})
+    meta["updated_at"] = datetime.now().strftime("%Y-%m-%d")
+    yaml_str = yaml.dump(meta, default_flow_style=False, allow_unicode=True, sort_keys=False).strip()
+    new_content = f"---\n{yaml_str}\n---\n\n{new_body}\n"
+
+    from config import WIKI_DIR
+    filepath = WIKI_DIR / page_path
+    filepath.write_text(new_content, encoding="utf-8")
+
+    # 重建该文件的向量索引
+    try:
+        get_indexer().index_file(filepath)
+    except Exception as e:
+        logging.warning(f"Wiki 索引重建失败: {e}")
+
+    return {"success": True, "message": "已保存", "path": page_path}
 
 
 # ===== 推送 & 通知 API =====
@@ -705,6 +815,97 @@ async def get_timeline():
              for f in files]
     items.sort(key=lambda x: x["date"], reverse=True)
     return {"items": items}
+
+
+# ===== 数据导出 =====
+
+@app.get("/api/export")
+async def export_data():
+    """导出知识库 — 打包为 ZIP（data/ + wiki/ 目录）"""
+    import io
+    import zipfile
+    from fastapi.responses import StreamingResponse
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        # data/ 目录
+        for md_file in sorted(DATA_DIR.glob("*.md")):
+            zf.write(md_file, f"data/{md_file.name}")
+        # wiki/ 目录
+        from config import WIKI_DIR
+        for md_file in sorted(WIKI_DIR.glob("**/*.md")):
+            rel = md_file.relative_to(WIKI_DIR)
+            zf.write(md_file, f"wiki/{rel}")
+        # taxonomy
+        tax_path = WIKI_DIR / "_taxonomy.yaml"
+        if tax_path.exists():
+            zf.write(tax_path, "wiki/_taxonomy.yaml")
+
+    buf.seek(0)
+    from datetime import datetime
+    date_str = datetime.now().strftime("%Y%m%d_%H%M")
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename=knowledge_export_{date_str}.zip"},
+    )
+
+
+# ===== 反馈闭环 =====
+
+@app.post("/api/feedback")
+async def submit_feedback(req: dict):
+    """提交搜索反馈 — 用于 Few-shot 优化
+
+    Body: {"query": "...", "answer": "...", "rating": "good"|"bad", "comment": "..."}
+    """
+    query = req.get("query", "").strip()
+    rating = req.get("rating", "").strip()
+    if not query or rating not in ("good", "bad"):
+        raise HTTPException(status_code=400, detail="需要 query 和 rating(good/bad)")
+
+    from config import BASE_DIR
+    from datetime import datetime
+    import json
+
+    fb_dir = BASE_DIR / "outputs" / "feedback"
+    fb_dir.mkdir(parents=True, exist_ok=True)
+
+    record = {
+        "query": query,
+        "answer": req.get("answer", ""),
+        "rating": rating,
+        "comment": req.get("comment", ""),
+        "timestamp": datetime.now().isoformat(),
+    }
+
+    # 追加写入 JSONL
+    fb_file = fb_dir / "feedback.jsonl"
+    with open(fb_file, "a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    return {"success": True, "message": "感谢反馈!"}
+
+
+@app.get("/api/feedback")
+async def list_feedback(limit: int = 50):
+    """获取反馈记录 — 用于 Few-shot 注入"""
+    from config import BASE_DIR
+    fb_file = BASE_DIR / "outputs" / "feedback" / "feedback.jsonl"
+    if not fb_file.exists():
+        return {"items": [], "total": 0}
+
+    records = []
+    with open(fb_file, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                try:
+                    records.append(json.loads(line))
+                except Exception:
+                    pass
+
+    return {"items": records[-limit:], "total": len(records)}
 
 
 # ===== 静态文件 =====

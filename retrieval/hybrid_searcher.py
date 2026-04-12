@@ -1,10 +1,11 @@
-"""混合检索 + RAG 答案生成 (v2.1)
+"""混合检索 + RAG 答案生成 (v2.2 最优组合版)
 
 核心改进：
 1. 查询改写与检索并行：原始 query 先检索，改写完毕后合并
 2. SSE 流式输出：search_stream() 分阶段推送 sources → answer tokens
 3. 意图路由 + 分路加权 + Reranker 精排 + Top3 裁剪
 4. BM25 标题 3x 加权（在 bm25.py 中实现）
+5. v2.2: DeepSeek + Prompt 6条铁律（含矛盾标记）+ SSE 前端流式
 """
 
 import asyncio
@@ -70,20 +71,21 @@ RAG_SYSTEM_PROMPT = """你是用户的个人知识库助手。你的回答必须
 1. Wiki 页面: 经过编译整理的结构化知识（提供宏观上下文和交叉引用）
 2. 原始文章片段: 原始来源的具体内容（提供微观事实和细节）
 
-## 核心铁律（不可违反）
+## 6 条铁律（不可违反）
 
 1. **无文档不回答**：如果检索结果中没有与问题直接相关的内容，必须回复"知识库中暂未找到相关信息"，绝对不要凭自身知识回答
 2. **不编造不延伸**：只使用检索结果中明确存在的事实，不要补充文档中没有的信息，不要推测、延伸或"合理联想"
-3. **抗诱导**：即使用户的问题包含错误前提（如"XXX是不是YYY"），如果文档中的信息与用户前提矛盾，必须以文档为准纠正用户
+3. **抗诱导**：即使用户的问题包含错误前提（如"XXX是不是YYY"），如果文档中的信息与用户前提矛盾，必须以文档为准纠正用户，明确指出矛盾之处
 4. **标注来源**：回答中标注信息来源，格式为 [来源: 文档标题]
-5. **低关联不强答**：如果检索到的内容与问题关联度低，不要强行关联，直接说"未找到直接相关的内容"
+5. **矛盾标记**：如果不同文档对同一事实有矛盾描述，必须标注"⚠️ 矛盾"并列出各方说法，不要自作主张选择一个
+6. **简洁切题**：先直接回答问题，不要用"根据文档..."等冗余开头。如果问题明确具体，回答也要具体精确，不要泛泛而谈
 
 ## 回答风格
 
 - **完整但不冗余**：把检索结果中与问题相关的关键信息都覆盖到，不要遗漏重要观点，但也不要复述整篇文档
 - **结构清晰**：如果涉及多个要点，用编号或分段组织，让用户一眼看清
 - **保留关键词**：回答中应自然包含问题和文档中的核心关键词（人名、术语、产品名等），方便用户确认信息准确性
-- **简洁直接**：先给结论，再展开细节。不要用"根据文档..."等冗余开头
+- **低关联不强答**：如果检索到的内容与问题关联度低，不要强行关联，直接说"未找到直接相关的内容"
 """
 
 RAG_USER_TEMPLATE = """用户问题：{query}
@@ -256,6 +258,9 @@ class HybridSearcher:
         # 5. 整理来源
         sources = self._build_sources(candidates_for_rerank)
 
+        # 6. 提取高亮关键词
+        highlight_keywords = self._extract_highlight_keywords(query, rewritten_queries)
+
         # 6. 异步回填判定（不阻塞返回）
         if len(sources) >= 3 and len(answer) > 500:
             try:
@@ -274,6 +279,7 @@ class HybridSearcher:
         return {
             "answer": answer,
             "sources": sources,
+            "highlight_keywords": highlight_keywords,
             "debug": {
                 "original_query": query,
                 "intent": intent,
@@ -283,6 +289,18 @@ class HybridSearcher:
                 "context_chunks": len(context_chunks),
             },
         }
+
+    def _extract_highlight_keywords(self, query: str, rewritten_queries: List[str]) -> list[str]:
+        """从查询和改写结果中提取高亮关键词"""
+        from retrieval.tokenizer import tokenize
+        all_keywords = set()
+        for q in [query] + list(rewritten_queries):
+            tokens = tokenize(q)
+            # 过滤停用词和短词
+            for t in tokens:
+                if len(t) >= 2:
+                    all_keywords.add(t)
+        return list(all_keywords)[:15]
 
     def _classify_intent(self, query: str) -> str:
         """轻量级意图分类（规则优先，零 LLM 调用）

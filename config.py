@@ -20,7 +20,7 @@ for _subdir in ["topics", "entities", "concepts", "moc"]:
     (WIKI_DIR / _subdir).mkdir(exist_ok=True)
 
 # ===== LLM Provider =====
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "kimi")
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "deepseek")
 
 LLM_CONFIGS = {
     "kimi": {

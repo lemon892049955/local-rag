@@ -383,12 +383,11 @@ class WikiCompiler:
                         if classify_result:
                             taxonomy.add_page_to_taxonomy(
                                 cpath,
-                                classify_result.get("category", "概念与术语"),
+                                classify_result.get("category", "其他"),
                                 classify_result.get("subcategory", ""),
                             )
                     except Exception:
-                        # 分类失败时默认归入"概念与术语"
-                        taxonomy.add_page_to_taxonomy(cpath, "概念与术语", "")
+                        pass  # 分类失败时跳过，不强制归类
                 except Exception as e:
                     logger.warning(f"创建概念卡失败 {concept.get('name')}: {e}")
 
@@ -446,7 +445,7 @@ _(后续更新在此追加)_
                         if classify_result:
                             taxonomy.add_page_to_taxonomy(
                                 epath,
-                                classify_result.get("category", "未分类"),
+                                classify_result.get("category", "其他"),
                                 classify_result.get("subcategory", ""),
                             )
                     except Exception:
@@ -486,7 +485,7 @@ _(后续更新在此追加)_
                         if classify_result:
                             taxonomy.add_page_to_taxonomy(
                                 page_path,
-                                classify_result.get("category", "未分类"),
+                                classify_result.get("category", "其他"),
                                 classify_result.get("subcategory", ""),
                             )
                     except Exception as te:
@@ -552,6 +551,13 @@ _(后续更新在此追加)_
 
         # Step 6: 增量向量索引 (Wiki 页面)
         self._index_affected_pages(new_pages + updated_pages)
+
+        # Step 7: 分类合并检查（新页面可能导致分类过多）
+        if new_pages:
+            try:
+                await taxonomy.maybe_merge_categories()
+            except Exception as e:
+                logger.warning(f"Taxonomy 合并检查失败: {e}")
 
         return {
             "new_pages": new_pages,
