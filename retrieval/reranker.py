@@ -14,11 +14,28 @@ logger = logging.getLogger(__name__)
 
 # 默认 Reranker 模型
 RERANKER_MODEL = "BAAI/bge-reranker-v2-m3"
-# ModelScope 下载的本地缓存路径
-RERANKER_LOCAL_PATH = os.path.join(
-    os.environ.get("SENTENCE_TRANSFORMERS_HOME", "vectordb/models"),
-    "BAAI/bge-reranker-v2-m3"
-)
+# 可能的本地缓存路径列表
+RERANKER_LOCAL_PATHS = [
+    os.path.join(os.environ.get("SENTENCE_TRANSFORMERS_HOME", "vectordb/models"), "BAAI/bge-reranker-v2-m3"),
+    # huggingface_hub snapshot_download 的默认缓存位置
+    os.path.join(os.environ.get("HF_HOME", "/app/.cache/huggingface"), "models--BAAI--bge-reranker-v2-m3"),
+]
+
+
+def _find_local_model() -> str | None:
+    """在已知缓存路径中查找模型，支持 snapshot 格式"""
+    for path in RERANKER_LOCAL_PATHS:
+        # 直接目录（含 config.json）
+        if os.path.isfile(os.path.join(path, "config.json")):
+            return path
+        # huggingface_hub snapshot 格式：models--xx/snapshots/<hash>/
+        snapshots_dir = os.path.join(path, "snapshots")
+        if os.path.isdir(snapshots_dir):
+            for entry in sorted(os.listdir(snapshots_dir), reverse=True):
+                candidate = os.path.join(snapshots_dir, entry)
+                if os.path.isfile(os.path.join(candidate, "config.json")):
+                    return candidate
+    return None
 
 
 class Reranker:
@@ -33,15 +50,22 @@ class Reranker:
         """延迟加载 Cross-Encoder 模型（优先本地缓存）"""
         if self._model is None:
             try:
+                # 确保 HuggingFace 镜像设置生效（国内服务器必须）
+                if not os.environ.get("HF_ENDPOINT"):
+                    os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+                os.environ.setdefault("HF_HUB_OFFLINE", "0")
+                os.environ.setdefault("TRANSFORMERS_OFFLINE", "0")
+
                 from sentence_transformers import CrossEncoder
-                # 优先从本地缓存加载，避免联网
-                load_path = self._model_name
-                if os.path.exists(RERANKER_LOCAL_PATH):
-                    load_path = RERANKER_LOCAL_PATH
-                    logger.info(f"从本地加载 Reranker: {load_path}")
+
+                # 优先从本地缓存加载
+                local_path = _find_local_model()
+                if local_path:
+                    logger.info(f"从本地加载 Reranker: {local_path}")
+                    self._model = CrossEncoder(local_path)
                 else:
-                    logger.info(f"从网络加载 Reranker: {load_path}")
-                self._model = CrossEncoder(load_path)
+                    logger.info(f"从网络加载 Reranker: {self._model_name}")
+                    self._model = CrossEncoder(self._model_name)
                 logger.info(f"Reranker 模型加载完成")
             except Exception as e:
                 logger.error(f"Reranker 模型加载失败: {e}")
