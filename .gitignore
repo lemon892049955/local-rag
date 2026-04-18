@@ -30,7 +30,7 @@ Thumbs.db
 tools/
 
 # 输出结果
-eval_results/
+eval_results/*.json
 outputs/
 
 # 缓存
