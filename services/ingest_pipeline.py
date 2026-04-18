@@ -82,8 +82,8 @@ async def ocr_images(raw: RawContent, max_images: int = 10):
                         # 用 Markdown 引用块格式，视觉上与正文区分
                         formatted = f"\n\n> **📷 图片 {i+1}**\n" + "\n".join(f"> {line}" for line in text.strip().split("\n")) + "\n"
                         raw.content = raw.content.replace(f"[IMG_{i+1}]", formatted)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"单张图片 OCR 失败: {img_url[:50]}... - {e}")
             raw.content = re.sub(r'\[IMG_\d+\]', '', raw.content)
         else:
             # 无占位符：使用多图关联理解（≤3张）或逐张处理
@@ -111,8 +111,8 @@ async def ingest_url(url: str, skip_duplicate: bool = True, force: bool = False,
         if on_progress:
             try:
                 await on_progress(stage, status, message, progress)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"进度回调失败: {e}")
 
     # 1. 去重检查（force 模式下删除旧文件）
     await _progress("dedup", "running", "去重检查中...", 5)

@@ -272,14 +272,14 @@ class HybridSearcher:
                 asyncio.get_event_loop().create_task(
                     self._maybe_backfill(query, answer, sources)
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"回填任务创建失败: {e}")
 
         # 9. 输出缓存 — 高质量回答落文件
         try:
             self._cache_answer(query, answer, sources)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"答案缓存失败: {e}")
 
         return {
             "answer": answer,

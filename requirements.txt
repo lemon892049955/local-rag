@@ -3,27 +3,27 @@ fastapi==0.115.6
 uvicorn==0.34.0
 
 # HTTP & Scraping
-requests==2.32.3
+requests==2.33.1
 httpx==0.28.1              # 异步 HTTP 客户端（替代 requests 的 async 场景）
-beautifulsoup4==4.12.3
+beautifulsoup4==4.14.3
 readability-lxml==0.8.1
 lxml==5.3.0
 lxml_html_clean==0.4.1
 
 # LLM Clients
-openai==1.58.1          # Kimi/DeepSeek 都兼容 OpenAI 接口
+openai==1.58.1          # Kimi/DeepSeek 都兼容 OpenAI 接口（保持 1.x，2.x 有 breaking changes）
 
 # Vector DB & Embedding
-chromadb==0.5.23
+chromadb==0.5.23            # 保持 0.5.x，1.x 有重大 API 变化
 sentence-transformers==3.3.1
 
 # Markdown / YAML
 pyyaml==6.0.2
 
 # Utilities
-python-dotenv==1.0.1
+python-dotenv==1.2.2
 shortuuid==1.0.13
-pycryptodome==3.21.0   # 企微消息加解密
+pycryptodome==3.23.0   # 企微消息加解密
 python-multipart==0.0.9  # FastAPI 文件上传
 jieba==0.42.1            # 中文分词（BM25 检索）
 
@@ -33,3 +33,7 @@ wechat-ilink-bot==0.1.0  # PyPI 最新可用版本
 # Multimodal (v0.4)
 pymupdf==1.24.14        # PDF 解析，~15MB，纯 CPU（升级到有预编译 wheel 的版本）
 pydub==0.25.1           # 音频分段 (需系统安装 ffmpeg)
+
+# Testing
+pytest==8.3.5
+pytest-asyncio==0.25.3

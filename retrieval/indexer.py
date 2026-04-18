@@ -125,8 +125,8 @@ class VectorIndexer:
         # 清空 collection
         try:
             self.client.delete_collection(CHROMA_COLLECTION_NAME)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"删除旧 collection 失败（可能不存在）: {e}")
 
         # 重新索引所有文件
         total = 0
@@ -146,7 +146,8 @@ class VectorIndexer:
                 n_results=top_k,
                 include=["documents", "metadatas", "distances"],
             )
-        except Exception:
+        except Exception as e:
+            logger.warning(f"向量搜索失败: {e}")
             return []
         finally:
             self.embedding_fn.set_query_mode(False)
@@ -174,13 +175,14 @@ class VectorIndexer:
             )
             if existing["ids"]:
                 self.collection.delete(ids=existing["ids"])
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"删除文件切片失败: {filepath} - {e}")
 
     def get_stats(self) -> dict:
         """获取索引统计信息"""
         try:
             count = self.collection.count()
-        except Exception:
+        except Exception as e:
+            logger.warning(f"获取索引统计失败: {e}")
             count = 0
         return {"total_chunks": count}
