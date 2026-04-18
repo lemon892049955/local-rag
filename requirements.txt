@@ -28,8 +28,8 @@ python-multipart==0.0.9  # FastAPI 文件上传
 jieba==0.42.1            # 中文分词（BM25 检索）
 
 # WeChat iLink Bot (v2.5 — 微信个人号机器人)
-wechat-ilink-bot==0.3.0
+wechat-ilink-bot==0.1.0  # PyPI 最新可用版本
 
 # Multimodal (v0.4)
-pymupdf==1.24.0         # PDF 解析，~15MB，纯 CPU
+pymupdf==1.24.14        # PDF 解析，~15MB，纯 CPU（升级到有预编译 wheel 的版本）
 pydub==0.25.1           # 音频分段 (需系统安装 ffmpeg)
