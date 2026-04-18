@@ -23,46 +23,97 @@ EVAL_DIR.mkdir(exist_ok=True)
 # ===== 测试用例 =====
 # 每条包含: 问题 + 期望关键词(用于自动判断答案质量)
 TEST_CASES = [
+    # ===== 精确查找类 =====
     {
-        "query": "Vibe Coding 的核心流程是什么？",
-        "expect_keywords": ["Vibe", "Coding", "流程", "步骤"],
+        "query": "Vibe Coding 的总体成功率是多少？",
+        "expect_keywords": ["89.8%", "90%", "成功率"],
         "category": "精确查找",
     },
     {
-        "query": "AI 产品经理面临哪些挑战？",
-        "expect_keywords": ["产品经理", "挑战", "焦虑"],
-        "category": "主题概览",
-    },
-    {
-        "query": "小红书角色设计要注意什么？",
-        "expect_keywords": ["角色", "设计", "短剧"],
-        "category": "细节查找",
-    },
-    {
-        "query": "腾讯产品经理晋升的共同点是什么？",
-        "expect_keywords": ["晋升", "影响力"],
+        "query": "张小龙认为好的工具应该是什么样的？",
+        "expect_keywords": ["简单高效", "用完即走"],
         "category": "精确查找",
     },
     {
-        "query": "AI 时代文科生就业前景如何？",
-        "expect_keywords": ["文科", "就业"],
+        "query": "Karpathy 的知识库有哪三层架构？",
+        "expect_keywords": ["只读区", "写作区", "规则区"],
+        "category": "精确查找",
+    },
+    {
+        "query": "Vibe Coding 有哪三种失败原型？",
+        "expect_keywords": ["沙箱墙", "上下文窗口", "安全过滤器"],
+        "category": "精确查找",
+    },
+    # ===== 细节提取类 =====
+    {
+        "query": "作者用 Cursor 和 Claude Code 完成了哪三个项目？",
+        "expect_keywords": ["AgenticaSoC", "Blinds", "up-cli"],
+        "category": "细节提取",
+    },
+    {
+        "query": "Vibe Coding 的七宗罪中，第一宗罪是什么？",
+        "expect_keywords": ["宣布胜利", "Quick Win", "永远修"],
+        "category": "细节提取",
+    },
+    {
+        "query": "张小龙认为社交产品的定位是什么？",
+        "expect_keywords": ["孤独", "去处", "消除孤独"],
+        "category": "细节提取",
+    },
+    # ===== 主题概览类 =====
+    {
+        "query": "AI 时代产品经理需要哪些核心能力转变？",
+        "expect_keywords": ["数据", "技术", "产品"],
         "category": "主题概览",
     },
-    # ===== 针对新入库文章 =====
     {
-        "query": "AI 时代产品经理需要什么核心能力？",
-        "expect_keywords": ["产品经理", "结构化", "需求"],
-        "category": "长文验证",
+        "query": "如何搭建一个 AI 驱动的个人知识库？",
+        "expect_keywords": ["RAG", "知识库", "检索"],
+        "category": "主题概览",
+    },
+    # ===== 跨文档关联类 =====
+    {
+        "query": "准备 AI 产品经理面试需要了解哪些内容？",
+        "expect_keywords": ["大模型", "面试", "AI"],
+        "category": "跨文档关联",
     },
     {
-        "query": "Karpathy 是怎么搭建个人知识库的？",
-        "expect_keywords": ["Karpathy", "知识库", "LLM"],
-        "category": "跨源验证",
+        "query": "好的产品设计应该遵循哪些原则？",
+        "expect_keywords": ["简单", "用户", "效率"],
+        "category": "跨文档关联",
+    },
+    # ===== 否定测试类 =====
+    {
+        "query": "如何做一道好吃的红烧肉？",
+        "expect_keywords": ["知识库中暂未找到", "暂未找到"],
+        "category": "否定测试",
     },
     {
-        "query": "AI 漫剧在抖音的趋势是什么？",
-        "expect_keywords": ["漫剧", "抖音"],
-        "category": "图片密集验证",
+        "query": "React Hooks 的使用方法是什么？",
+        "expect_keywords": ["知识库中暂未找到", "暂未找到"],
+        "category": "否定测试",
+    },
+    # ===== 模糊查询类 =====
+    {
+        "query": "之前那篇讲 AI 编程失败经验的文章提到了哪些问题？",
+        "expect_keywords": ["沙箱墙", "上下文", "失败"],
+        "category": "模糊查询",
+    },
+    # ===== 补充测试 =====
+    {
+        "query": "张小龙对产品商业化有什么看法？",
+        "expect_keywords": ["商业化", "自然", "不急"],
+        "category": "商业化",
+    },
+    {
+        "query": "AI 产品成功的关键是什么？",
+        "expect_keywords": ["数据", "决策", "产品经理"],
+        "category": "AI产品",
+    },
+    {
+        "query": "Loopit 是如何在短时间内登顶美区娱乐榜首的？",
+        "expect_keywords": ["Loopit", "登顶", "AI社区"],
+        "category": "AI产品",
     },
 ]
 
