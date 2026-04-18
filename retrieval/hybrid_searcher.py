@@ -250,7 +250,7 @@ class HybridSearcher:
                 ],
                 temperature=0.3,
                 max_tokens=max_tokens,
-                timeout=60,
+                timeout=120,
             )
             answer = response.choices[0].message.content.strip()
         except Exception as e:
@@ -604,7 +604,7 @@ sources_count: {len(sources)}
                 temperature=0.3,
                 max_tokens=max_tokens,
                 stream=True,
-                timeout=60,
+                timeout=120,
             )
             full_answer = ""
             for chunk in stream:

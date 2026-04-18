@@ -16,9 +16,9 @@ from utils.frontmatter import read_frontmatter as _read_frontmatter
 
 def rebuild_index() -> str:
     """遍历 wiki/ 目录，自动生成 _index.md — 零 LLM 调用"""
-    sections = {"topics": [], "entities": [], "concepts": []}
+    sections = {"topics": [], "entities": [], "insights": []}
 
-    for subdir in ["topics", "entities", "concepts"]:
+    for subdir in ["topics", "entities", "insights"]:
         dir_path = WIKI_DIR / subdir
         if not dir_path.exists():
             continue
@@ -38,7 +38,7 @@ def rebuild_index() -> str:
         f"> 自动生成于 {datetime.now().strftime('%Y-%m-%d %H:%M')}，请勿手动编辑\n",
     ]
 
-    for section_name, label in [("topics", "主题"), ("entities", "实体"), ("concepts", "概念")]:
+    for section_name, label in [("topics", "主题"), ("entities", "实体"), ("insights", "洞察")]:
         items = sections[section_name]
         lines.append(f"\n## {label} ({len(items)})\n")
         if items:
@@ -105,7 +105,7 @@ def build_lightweight_summary() -> str:
 
     # 收集所有页面信息
     all_pages = []
-    for subdir in ["topics", "entities", "concepts"]:
+    for subdir in ["topics", "entities", "insights"]:
         dir_path = WIKI_DIR / subdir
         if not dir_path.exists():
             continue
@@ -165,7 +165,7 @@ def build_lightweight_summary() -> str:
         f"当前 Wiki 共 {total} 个页面"
         f"（{type_counts.get('topics', 0)} 个主题, "
         f"{type_counts.get('entities', 0)} 个实体, "
-        f"{type_counts.get('concepts', 0)} 个概念），按分类如下：\n"
+        f"{type_counts.get('insights', 0)} 个洞察），按分类如下：\n"
     ]
 
     for cluster_name, pages in sorted(clusters.items(), key=lambda x: -len(x[1])):

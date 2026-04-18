@@ -1,53 +1,213 @@
 # 由编译引擎自动维护，请勿手动编辑
-# 上次更新: 2026-04-10 12:14
+# 上次更新: 2026-04-18 05:49
 version: 1
 categories:
-  企业与产品:
-    description: ''
-    pages:
-    - entities/霸王茶姬.md
-    - topics/2026年AI领域三大关键趋势.md
-    - topics/Karpathy的AI个人知识库构建指南.md
-    - topics/2026年AI新产品评测.md
-    - topics/2026年AI硬件市场趋势.md
+  AI产品经理:
+    description: 聚焦于AI产品经理的职业发展、求职面试、技能要求与行业认知。
+    pages: []
     children:
+      面试经验:
+        pages:
+        - topics/AI产品经理面试经验.md
+        - topics/字节跳动AI产品经理面试复盘.md
+        - topics/AI Agent意图识别面试题集与实战指南.md
+      职业发展:
+        pages:
+        - topics/AI时代产品经理实践.md
+        - concepts/O.A.S.I.S模型.md
+        - concepts/需求即代码.md
+        - topics/AI辩论法生成PRD.md
+        - topics/AI Agent记忆系统设计.md
+      行业认知:
+        pages:
+        - topics/AI陪伴产品市场调研分析.md
+        - topics/Token出海.md
+        - concepts/序列反馈.md
+        - concepts/数据设计.md
+        - concepts/Agentic Engineering.md
+        - topics/恶意导流治理产品策略.md
+        - topics/AI Agent技能自进化与记忆管理.md
+  AIGC内容创作:
+    description: 聚焦于利用AIGC技术进行内容创作（如短剧、视频、角色、文案等）的方法、技巧与实践案例。
+    pages: []
+    children:
+      角色设计:
+        pages:
+        - topics/AI仿真人短剧角色设计.md
+        - topics/AI真人短剧角色设计流程与方法.md
+      创作技巧:
+        pages:
+        - concepts/AI绘画提示词.md
+  项目文档:
+    description: 记录本项目（Local RAG）的架构设计、技术选型、模块说明等内部文档。
+    pages: []
+    children:
+      架构设计:
+        pages:
+        - topics/Local-RAG项目架构与设计.md
+      项目概述:
+        pages:
+        - entities/Local RAG.md
+  科技趋势与投资:
+    description: 聚焦于科技行业的前沿趋势分析、未来预测及相关的风险投资视角与洞察。
+    pages: []
+    children:
+      趋势报告:
+        pages:
+        - topics/a16z《Big Ideas 2026》科技趋势报告.md
+        - entities/欧盟.md
+        - concepts/质押媒体.md
+      投资机构:
+        pages:
+        - entities/a16z.md
+      经济理论:
+        pages:
+        - concepts/杰文斯悖论.md
+        - topics/Token经济学.md
+  AI产品案例:
+    description: 聚焦于具体的AI产品（如智能硬件、软件应用、平台服务）的分析、评测、市场表现与案例研究。
+    pages: []
+    children:
+      智能硬件:
+        pages:
+        - entities/AIBO.md
+        - entities/拓麻歌子.md
+      公司分析:
+        pages:
+        - entities/Anthropic.md
+        - entities/智谱AI.md
+        - entities/涌跃智能.md
+        - entities/OpenAI.md
+        - topics/AI电商入口竞争.md
+        - entities/智谱.md
+        - entities/MiniMax.md
+        - topics/中国AI独角兽平台化转型.md
+      软件应用:
+        pages:
+        - entities/ChatGPT.md
+        - entities/Claude Code.md
+        - entities/Kimi Vision.md
+        - entities/Loopit.md
+        - entities/Whisper.md
+        - entities/moonshot-v1-8k-vision-preview.md
+        - entities/z-image.md
+        - concepts/AI Coding Agent.md
+        - concepts/了解你的代理.md
+        - concepts/情感交互.md
+        - concepts/智能体（Agent）.md
+        - entities/DeepSeek V3.md
+        - entities/豆包.md
+        - entities/Claude.md
+        - entities/GPT.md
+        - concepts/意图识别.md
+        - entities/Codex.md
+        - entities/Hermes Agent.md
+        - entities/OpenClaw.md
+  产品人物与思想:
+    description: 聚焦于科技与产品领域的关键人物（如企业家、工程师、思想家）的传记、思想、言论及其对行业的影响。
+    pages: []
+    children:
+      人物故事:
+        pages:
+        - entities/Andrej Karpathy.md
+        - entities/Cat Wu.md
+        - entities/哈佛.md
+        - entities/张小龙.md
+        - entities/陈炜鹏.md
+        - entities/雅各布·尼尔森.md
+        - entities/花生（花叔）.md
+  开发工具实践:
+    description: 聚焦于开发工具、框架、库、平台（如向量数据库、RAG系统、编程语言）的使用方法、技术原理、最佳实践与评测。
+    pages: []
+    children:
+      向量数据库:
+        pages:
+        - entities/ChromaDB.md
+      编程工具:
+        pages:
+        - entities/Cursor.md
+        - entities/DOMPurify.md
+        - concepts/Vibe Coding.md
+        - concepts/DESIGN.md.md
+      设计工具:
+        pages:
+        - entities/Figma.md
+        - entities/getdesign.md.md
+        - entities/VoltAgent/awesome-design-md.md
+        - entities/getdesign.md
+      知识管理:
+        pages:
+        - entities/LLM Wiki.md
+        - concepts/知识图谱.md
+      检索模型:
+        pages:
+        - concepts/Cross-Encoder.md
+        - concepts/HybridSearcher.md
+        - concepts/RAG.md
+        - concepts/RRF.md
+        - concepts/上下文窗口耗尽.md
+        - concepts/实体识别.md
+      网络安全:
+        pages:
+        - concepts/XSS.md
+      架构设计:
+        pages:
+        - concepts/联邦式架构.md
       开源项目:
         pages:
-        - topics/Github开源项目动态.md
-        - topics/同事skill项目及其Agent_Skills架构.md
-        - topics/2026年AI技术趋势全貌.md
-        - topics/2026年创业与投资新趋势.md
-        - topics/AI技术革命与产业融合.md
-        - topics/AI_Agent技术架构与应用场景.md
-        - entities/Claude_Code.md
-        - topics/AI真人漫改剧市场分析.md
-      AI技术与应用:
+        - entities/女娲.skill.md
+  互联网产品:
+    description: 聚焦于主流互联网产品（如社交、内容、电商平台）的功能分析、市场策略、用户生态与案例研究。
+    pages: []
+    children:
+      社交平台:
         pages:
-        - topics/2026年AI工作流革命.md
-        - topics/梁宁的商业思考与产品经理自我成长.md
-        - topics/AI技术与应用新动态.md
-        - topics/AI仿真人短剧角色设计.md
-        - topics/2026年中国AI企业全产业链盘点.md
-        - topics/Harness架构下Agent研发.md
-        - topics/AI产品经理的焦虑与挑战.md
-        - topics/AI时代产品经理的核心能力重塑.md
-        - topics/阿里AI模型HappyHorse与字节Seedance2.0竞争.md
-  市场趋势:
-    description: ''
-    pages:
-    - topics/2026年消费文娱与低空经济趋势.md
-    - topics/2026-2035年择业趋势分析.md
-    - topics/2026年高薪转行指南.md
-    - topics/2026年AI与数据科学五大趋势.md
-    - topics/2026年AI产业趋势.md
-    - topics/2026年心理学领域的九大趋势.md
-    - topics/2026年中国商业趋势.md
-    children: {}
-  AI技术与应用:
-    description: ''
-    pages:
-    - topics/利用LLM构建个人知识库的模式.md
-    - topics/AI时代产品经理的新实践.md
-    - topics/AI时代文科生就业前景.md
-    - topics/AI技术变革与社会影响.md
-    children: {}
+        - entities/小红书.md
+        - entities/抖音.md
+        - entities/饭否.md
+      内容生态:
+        pages:
+        - concepts/Remix（二创）.md
+      公司分析:
+        pages:
+        - entities/阿里.md
+        - entities/字节跳动.md
+        - entities/抖音电商.md
+      社交经济:
+        pages:
+        - topics/精装朋友圈产业链.md
+  数据分析与统计:
+    description: 聚焦于数据分析、统计学方法、假设检验、数据解读等领域的知识、工具与实践。
+    pages: []
+    children:
+      统计检验:
+        pages:
+        - concepts/t检验.md
+        - concepts/卡方检验.md
+        - concepts/方差分析.md
+      优化算法:
+        pages:
+        - concepts/帕累托前沿选择.md
+  产品设计方法:
+    description: 聚焦于产品设计（特别是交互设计、用户体验设计）的核心原则、方法论与实践指南。
+    pages: []
+    children:
+      设计原则:
+        pages:
+        - concepts/一致性原则.md
+        - concepts/传感器应用.md
+        - concepts/尼尔森可用性原则.md
+        - concepts/状态可见原则.md
+      评估模型:
+        pages:
+        - concepts/代理指标影响模型.md
+        - concepts/直接绩效 ROI 模型.md
+        - concepts/认知赋能模型.md
+      开发方法:
+        pages:
+        - concepts/原型驱动开发.md
+        - concepts/快速迭代.md
+      用户研究:
+        pages:
+        - concepts/行为痕迹分析.md
+pinned_pages: []

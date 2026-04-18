@@ -45,7 +45,7 @@ def rebuild_moc_pages():
 
     # 收集所有页面元信息
     page_meta = {}  # path -> meta dict
-    for subdir in ["topics", "entities", "concepts"]:
+    for subdir in ["topics", "entities", "concepts", "insights"]:
         dir_path = WIKI_DIR / subdir
         if not dir_path.exists():
             continue

@@ -30,9 +30,9 @@ class Chunk:
 class SemanticChunker:
     """语义切片器"""
 
-    MAX_CHUNK_CHARS = 1500   # 单切片最大字符数 (约 512 token)
+    MAX_CHUNK_CHARS = 2000   # 单切片最大字符数 (增加到 2000，减少切片碎片化)
     MIN_CHUNK_CHARS = 50     # 最小有意义切片
-    OVERLAP_CHARS = 150      # 切片重叠字符数，防止语义在边界断裂
+    OVERLAP_CHARS = 300      # 切片重叠字符数，从 150 增加到 300，防止语义在边界断裂
 
     def chunk_file(self, filepath: Path) -> list[Chunk]:
         """将单个 Markdown 文件切片"""
