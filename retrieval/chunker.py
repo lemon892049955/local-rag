@@ -115,6 +115,8 @@ class SemanticChunker:
     def _split_by_headers(self, text: str) -> list[tuple[str, str]]:
         """按 # / ## / ### 标题拆分文本
 
+        v0.8: 对连续的短标题列表（如七宗罪）做合并处理，避免切碎列表项
+
         Returns:
             [(section_title, section_text), ...]
         """
@@ -125,15 +127,34 @@ class SemanticChunker:
         sections = []
         current_title = ""
         current_lines = []
+        current_level = 0
 
         for line in lines:
             match = re.match(pattern, line)
             if match:
+                new_level = len(match.group(1))
+                new_title = match.group(2).strip()
+
                 # 保存前一个 section
                 if current_lines:
                     sections.append((current_title, "\n".join(current_lines).strip()))
-                current_title = match.group(2).strip()
-                current_lines = []
+
+                # 检查是否为连续列表项（同级短标题）
+                # 如果前一个 section 内容很短且是同级标题，合并到前一个 section
+                if (sections and
+                    current_level == new_level and
+                    len(sections[-1][1]) < self.MIN_CHUNK_CHARS * 3 and  # 前一个内容较短
+                    new_level == 3):  # 只对 ### 三级标题做合并
+                    # 合并到前一个 section
+                    prev_title, prev_text = sections.pop()
+                    combined_title = f"{prev_title} / {new_title}" if prev_title else new_title
+                    combined_text = f"{prev_text}\n\n### {new_title}" if prev_text else f"### {new_title}"
+                    current_title = combined_title
+                    current_lines = [combined_text]
+                else:
+                    current_title = new_title
+                    current_lines = []
+                current_level = new_level
             else:
                 current_lines.append(line)
 

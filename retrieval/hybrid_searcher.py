@@ -233,6 +233,17 @@ class HybridSearcher:
         else:
             candidates_for_rerank = candidates_for_rerank[:5]
 
+        # 相关性阈值判断：如果最高分太低，认为没有相关内容
+        if candidates_for_rerank:
+            top_score = candidates_for_rerank[0].get("rerank_score", candidates_for_rerank[0].get("rrf_score", 0))
+            if top_score < 0.005:  # 相关性过低阈值
+                logger.info(f"检索结果相关性过低 ({top_score:.4f})，返回暂未找到")
+                return {
+                    "answer": "知识库中暂未找到与您问题相关的内容。请尝试换个关键词，或先录入相关内容。",
+                    "sources": [],
+                    "debug": {"rewritten_queries": rewritten_queries, "intent": intent, "top_score": top_score, "reason": "low_relevance"},
+                }
+
         context_chunks = self._select_context_chunks(candidates_for_rerank, all_candidates)
 
         # 4. 构建 Context + LLM 生成答案
