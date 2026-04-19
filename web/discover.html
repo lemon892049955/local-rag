@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>发现 - AI 热榜监控</title>
+    <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        [x-cloak] { display: none !important; }
+        .source-badge {
+            @apply text-xs px-2 py-0.5 rounded-full;
+        }
+        .source-hackernews { @apply bg-orange-100 text-orange-700; }
+        .source-github { @apply bg-gray-100 text-gray-700; }
+        .source-zhihu { @apply bg-blue-100 text-blue-700; }
+        .source-v2ex { @apply bg-green-100 text-green-700; }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <div x-data="discoverApp()" x-init="init()" class="max-w-4xl mx-auto p-4">
+        <!-- 头部 -->
+        <div class="flex items-center justify-between mb-6">
+            <div>
+                <h1 class="text-2xl font-bold text-gray-800">🔍 发现</h1>
+                <p class="text-gray-500 text-sm mt-1">AI 热榜监控，一键入库好内容</p>
+            </div>
+            <div class="flex gap-2">
+                <a href="/" class="text-gray-500 hover:text-gray-700">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path>
+                    </svg>
+                </a>
+                <button @click="refresh()" :disabled="loading"
+                    class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50">
+                    <span x-show="!loading">🔄 刷新热榜</span>
+                    <span x-show="loading">刷新中...</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- 统计卡片 -->
+        <div class="grid grid-cols-4 gap-4 mb-6">
+            <div class="bg-white rounded-lg p-4 shadow-sm">
+                <div class="text-2xl font-bold text-gray-800" x-text="stats.pending"></div>
+                <div class="text-gray-500 text-sm">待入库</div>
+            </div>
+            <div class="bg-white rounded-lg p-4 shadow-sm">
+                <div class="text-2xl font-bold text-green-600" x-text="stats.ingested"></div>
+                <div class="text-gray-500 text-sm">已入库</div>
+            </div>
+            <div class="bg-white rounded-lg p-4 shadow-sm">
+                <div class="text-2xl font-bold text-gray-400" x-text="stats.ignored"></div>
+                <div class="text-gray-500 text-sm">已忽略</div>
+            </div>
+            <div class="bg-white rounded-lg p-4 shadow-sm">
+                <div class="text-sm text-gray-500">上次抓取</div>
+                <div class="text-sm text-gray-700" x-text="formatTime(lastFetch)"></div>
+            </div>
+        </div>
+
+        <!-- 筛选栏 -->
+        <div class="bg-gray-100 rounded-lg p-3 mb-4">
+            <!-- 状态筛选 -->
+            <div class="flex items-center gap-2 mb-2">
+                <span class="text-gray-500 text-xs w-12">状态</span>
+                <div class="flex gap-1.5">
+                    <button @click="filter.status = 'pending'; loadItems()"
+                        :class="filter.status === 'pending' ? 'bg-blue-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'"
+                        class="px-3 py-1 rounded text-xs font-medium transition">待入库</button>
+                    <button @click="filter.status = 'ingested'; loadItems()"
+                        :class="filter.status === 'ingested' ? 'bg-blue-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'"
+                        class="px-3 py-1 rounded text-xs font-medium transition">已入库</button>
+                    <button @click="filter.status = 'ignored'; loadItems()"
+                        :class="filter.status === 'ignored' ? 'bg-blue-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'"
+                        class="px-3 py-1 rounded text-xs font-medium transition">已忽略</button>
+                    <button @click="filter.status = 'all'; loadItems()"
+                        :class="filter.status === 'all' ? 'bg-blue-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'"
+                        class="px-3 py-1 rounded text-xs font-medium transition">全部</button>
+                </div>
+            </div>
+            <!-- 平台筛选 -->
+            <div class="flex items-center gap-2">
+                <span class="text-gray-500 text-xs w-12">平台</span>
+                <div class="flex flex-wrap gap-1.5">
+                    <button @click="filter.source = ''; loadItems()"
+                        :class="filter.source === '' ? 'bg-gray-800 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'"
+                        class="px-2.5 py-1 rounded text-xs transition">全部</button>
+                    <template x-for="s in sources" :key="s">
+                        <button @click="filter.source = s; loadItems()"
+                            :class="filter.source === s ? 'bg-gray-800 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'"
+                            class="px-2.5 py-1 rounded text-xs transition" x-text="s"></button>
+                    </template>
+                </div>
+            </div>
+        </div>
+
+        <!-- 内容列表 -->
+        <div class="space-y-3">
+            <template x-for="item in items" :key="item.id">
+                <div class="bg-white rounded-lg p-4 shadow-sm hover:shadow-md transition-shadow">
+                    <div class="flex items-start justify-between">
+                        <div class="flex-1">
+                            <div class="flex items-center gap-2 mb-1">
+                                <span :class="'source-badge source-' + item.source.toLowerCase().replace(' ', '')"
+                                    x-text="item.source"></span>
+                                <span x-show="item.score" class="text-xs text-gray-400" x-text="'热度: ' + item.score"></span>
+                            </div>
+                            <a :href="item.url" target="_blank"
+                                class="text-gray-800 font-medium hover:text-blue-600 line-clamp-2"
+                                x-text="item.title"></a>
+                            <p x-show="item.summary" class="text-gray-500 text-sm mt-1 line-clamp-2" x-text="item.summary"></p>
+                        </div>
+                        <div class="flex gap-2 ml-4" x-show="item.status === 'pending'">
+                            <button @click="ingest(item)"
+                                class="bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded text-sm">
+                                入库
+                            </button>
+                            <button @click="ignore(item.id)"
+                                class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1 rounded text-sm">
+                                忽略
+                            </button>
+                        </div>
+                        <div class="ml-4" x-show="item.status === 'ingested'">
+                            <span class="text-green-600 text-sm">✓ 已入库</span>
+                        </div>
+                        <div class="ml-4" x-show="item.status === 'ignored'">
+                            <span class="text-gray-400 text-sm">已忽略</span>
+                        </div>
+                    </div>
+                </div>
+            </template>
+
+            <!-- 空状态 -->
+            <div x-show="items.length === 0 && !loading" class="text-center py-12">
+                <div class="text-gray-400 text-lg">暂无内容</div>
+                <button @click="refresh()" class="mt-4 text-blue-500 hover:text-blue-600">
+                    点击刷新热榜
+                </button>
+            </div>
+        </div>
+
+        <!-- 分页 -->
+        <div x-show="total > pageSize" class="flex justify-center gap-2 mt-6">
+            <button @click="page--; loadItems()" :disabled="page <= 1"
+                class="px-4 py-2 bg-white rounded-lg disabled:opacity-50">上一页</button>
+            <span class="px-4 py-2 text-gray-600" x-text="`第 ${page} 页 / 共 ${Math.ceil(total/pageSize)} 页`"></span>
+            <button @click="page++; loadItems()" :disabled="page * pageSize >= total"
+                class="px-4 py-2 bg-white rounded-lg disabled:opacity-50">下一页</button>
+        </div>
+
+        <!-- Toast 提示 -->
+        <div x-show="toast.show" x-transition
+            class="fixed bottom-4 right-4 bg-gray-800 text-white px-4 py-2 rounded-lg shadow-lg"
+            x-text="toast.message"></div>
+    </div>
+
+    <script>
+        function discoverApp() {
+            return {
+                items: [],
+                stats: { pending: 0, ingested: 0, ignored: 0 },
+                sources: [],
+                lastFetch: null,
+                loading: false,
+                page: 1,
+                pageSize: 20,
+                total: 0,
+                filter: { status: 'pending', source: '' },
+                toast: { show: false, message: '' },
+
+                async init() {
+                    await this.loadItems();
+                    await this.loadStats();
+                },
+
+                async loadItems() {
+                    this.loading = true;
+                    try {
+                        const params = new URLSearchParams({
+                            status: this.filter.status,
+                            page: this.page,
+                            page_size: this.pageSize,
+                            source: this.filter.source
+                        });
+                        const res = await fetch(`/api/discover?${params}`);
+                        const data = await res.json();
+                        this.items = data.items || [];
+                        this.total = data.total || 0;
+                        this.sources = data.sources || [];
+                        this.lastFetch = data.last_fetch;
+                    } catch (e) {
+                        this.showToast('加载失败: ' + e.message);
+                    }
+                    this.loading = false;
+                },
+
+                async loadStats() {
+                    try {
+                        const res = await fetch('/api/discover/stats');
+                        this.stats = await res.json();
+                    } catch (e) {
+                        console.error('加载统计失败', e);
+                    }
+                },
+
+                async refresh() {
+                    this.loading = true;
+                    try {
+                        const res = await fetch('/api/discover/refresh', { method: 'POST' });
+                        const data = await res.json();
+                        this.showToast(data.message || '刷新完成');
+                        await this.loadItems();
+                        await this.loadStats();
+                    } catch (e) {
+                        this.showToast('刷新失败: ' + e.message);
+                    }
+                    this.loading = false;
+                },
+
+                async ingest(item) {
+                    try {
+                        const res = await fetch('/api/discover/ingest', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ id: item.id })
+                        });
+                        const data = await res.json();
+                        if (data.success) {
+                            this.showToast('入库成功: ' + (data.result?.title || item.title));
+                            await this.loadItems();
+                            await this.loadStats();
+                        } else {
+                            this.showToast('入库失败: ' + data.error);
+                        }
+                    } catch (e) {
+                        this.showToast('入库失败: ' + e.message);
+                    }
+                },
+
+                async ignore(id) {
+                    try {
+                        await fetch('/api/discover/ignore', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ id })
+                        });
+                        this.showToast('已忽略');
+                        await this.loadItems();
+                        await this.loadStats();
+                    } catch (e) {
+                        this.showToast('操作失败: ' + e.message);
+                    }
+                },
+
+                formatTime(iso) {
+                    if (!iso) return '-';
+                    const d = new Date(iso);
+                    return `${d.getMonth()+1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}`;
+                },
+
+                showToast(message) {
+                    this.toast = { show: true, message };
+                    setTimeout(() => { this.toast.show = false; }, 3000);
+                }
+            }
+        }
+    </script>
+</body>
+</html>

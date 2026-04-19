@@ -11,7 +11,7 @@
 import asyncio
 import json
 import logging
-from typing import List, Dict, AsyncGenerator
+from typing import List, Dict, AsyncGenerator, Optional
 
 from openai import OpenAI
 from config import get_llm_config, DATA_DIR, WIKI_DIR
@@ -90,7 +90,7 @@ RAG_SYSTEM_PROMPT = """你是用户的个人知识库助手。你的回答必须
 - **引用锚定**：每个具体事实/数据/观点都应标注来源 [REF-N]，确保可追溯。如果你不确定某个信息是否在文档中，宁可不提也不要猜测
 """
 
-RAG_USER_TEMPLATE = """用户问题：{query}
+RAG_USER_TEMPLATE = """{few_shot_section}用户问题：{query}
 
 ---以下是知识 Wiki 的相关页面（提供结构化上下文）---
 
@@ -103,6 +103,17 @@ RAG_USER_TEMPLATE = """用户问题：{query}
 请综合以上两类信息回答用户的问题。"""
 
 
+# Token 限制常量（按 1 token ≈ 1.5 中文字符估算）
+MAX_CONTEXT_CHARS = 120000  # 约 80000 tokens，留足余量给 system prompt 和输出
+MAX_CHUNK_CHARS = 8000  # 单个 chunk 最大 8000 字符（约 5300 tokens）
+
+
+def _estimate_tokens(text: str) -> int:
+    """估算文本的 token 数（中文约 1.5 字符/token，英文约 4 字符/token）"""
+    # 简单估算：取较大值
+    return max(len(text) // 1.5, len(text) // 4)
+
+
 class HybridSearcher:
     """混合检索 + RAG 答案生成 (v0.7 并行多路召回 + Reranker)"""
 
@@ -113,6 +124,8 @@ class HybridSearcher:
         self._data_bm25_built = False
         self._wiki_bm25_built = False
         self._reranker = None
+        self._few_shot_cache = None
+        self._few_shot_mtime = 0
 
         config = get_llm_config()
         self.client = OpenAI(
@@ -169,11 +182,108 @@ class HybridSearcher:
             self.wiki_bm25.build_from_chunks(all_chunks)
         self._wiki_bm25_built = True
 
+    def _load_cached_answer(self, query: str) -> Optional[dict]:
+        """从 QA 缓存中查找之前的优质回答"""
+        import hashlib
+        from config import BASE_DIR
+
+        qa_dir = BASE_DIR / "outputs" / "qa"
+        if not qa_dir.exists():
+            return None
+
+        qhash = hashlib.md5(query.encode()).hexdigest()[:8]
+        # 检查最近 30 天的缓存文件
+        from datetime import datetime, timedelta
+        for days_ago in range(31):
+            date = (datetime.now() - timedelta(days=days_ago)).strftime("%Y%m%d")
+            filepath = qa_dir / f"{date}_{qhash}.md"
+            if filepath.exists():
+                # 解析缓存的 markdown
+                content = filepath.read_text(encoding="utf-8")
+                parts = content.split("---", 2)
+                if len(parts) >= 3:
+                    body = parts[2].strip()
+                    # 去掉标题行和来源部分，只取答案
+                    lines = body.split("\n")
+                    answer_lines = []
+                    in_sources = False
+                    for line in lines:
+                        if line.strip().startswith("## 来源"):
+                            in_sources = True
+                            continue
+                        if not in_sources and not line.strip().startswith("# Q:"):
+                            answer_lines.append(line)
+                    answer = "\n".join(answer_lines).strip()
+                    if answer:
+                        logger.info(f"命中 QA 缓存: {filepath.name}")
+                        return {"answer": answer, "sources": [], "from_cache": True}
+        return None
+
+    def _load_few_shots(self) -> str:
+        """加载 good 反馈作为 few-shot 示例（带文件变更热更新）"""
+        from config import BASE_DIR
+        fb_file = BASE_DIR / "outputs" / "feedback" / "feedback.jsonl"
+        if not fb_file.exists():
+            return ""
+
+        # 热更新：文件没变就用缓存
+        try:
+            mtime = fb_file.stat().st_mtime
+            if self._few_shot_cache is not None and mtime == self._few_shot_mtime:
+                return self._few_shot_cache
+            self._few_shot_mtime = mtime
+        except Exception:
+            return ""
+
+        try:
+            import json as _json
+            good_examples = []
+            with open(fb_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        record = _json.loads(line)
+                        if record.get("rating") == "good" and record.get("answer"):
+                            good_examples.append(record)
+                    except Exception:
+                        continue
+
+            if not good_examples:
+                self._few_shot_cache = ""
+                return ""
+
+            # 取最近 3 条，每条答案截断到 300 字
+            recent = good_examples[-3:]
+            parts = ["以下是用户认可的优质回答示例，参考其风格和深度：\n"]
+            for i, ex in enumerate(recent, 1):
+                answer_preview = ex["answer"][:300]
+                if len(ex["answer"]) > 300:
+                    answer_preview += "..."
+                parts.append(f"示例 {i} — 问题: {ex['query']}\n回答: {answer_preview}\n")
+
+            few_shot = "\n".join(parts) + "\n---\n"
+            self._few_shot_cache = few_shot
+            return few_shot
+        except Exception:
+            return ""
+
     async def search(self, query: str, top_k: int = 5) -> dict:
         """v2.1 混合检索 + 意图路由 + 并行改写+检索 + Reranker 精排
 
-        流程：意图分类 → 原始query检索‖查询改写 → 改写query补充检索 → 分路加权 → Reranker → Top3 → LLM
+        流程：缓存回查 → few-shot 加载 → 意图分类 → 原始query检索‖查询改写 → 分路加权 → Reranker → Top3 → LLM
         """
+        # 0. 缓存回查
+        cached = self._load_cached_answer(query)
+        if cached:
+            return {
+                "answer": cached["answer"],
+                "sources": cached.get("sources", []),
+                "highlight_keywords": [],
+                "debug": {"from_cache": True},
+            }
+
         self._ensure_bm25()
 
         # 0. 意图分类
@@ -182,7 +292,7 @@ class HybridSearcher:
         logger.info(f"意图分类: {query[:30]} -> {intent}")
 
         # 1. 并行：原始 query 检索 + 查询改写（不再串行等待改写完成）
-        original_results_future = asyncio.get_event_loop().run_in_executor(
+        original_results_future = asyncio.get_running_loop().run_in_executor(
             None, self._retrieve_all, query
         )
         rewrite_future = self._rewrite_query(query)
@@ -196,7 +306,7 @@ class HybridSearcher:
         # 2. 用改写后的 query 做补充检索（排除原始 query，避免重复）
         extra_queries = [q for q in rewritten_queries if q != query]
         if extra_queries:
-            extra_results = await asyncio.get_event_loop().run_in_executor(
+            extra_results = await asyncio.get_running_loop().run_in_executor(
                 None, self._retrieve_extra, extra_queries
             )
         else:
@@ -248,7 +358,11 @@ class HybridSearcher:
 
         # 4. 构建 Context + LLM 生成答案
         wiki_context, data_context = self._build_context(context_chunks)
-        prompt = RAG_USER_TEMPLATE.format(query=query, wiki_context=wiki_context, data_context=data_context)
+        few_shot_section = self._load_few_shots()
+        prompt = RAG_USER_TEMPLATE.format(
+            query=query, wiki_context=wiki_context,
+            data_context=data_context, few_shot_section=few_shot_section,
+        )
         # 动态 max_tokens：context 越丰富，允许回答越长
         context_len = sum(len(h.get("text", "")) for h in context_chunks)
         max_tokens = min(4000, max(2000, context_len // 2))
@@ -280,7 +394,7 @@ class HybridSearcher:
         # 6. 异步回填判定（不阻塞返回）
         if len(sources) >= 3 and len(answer) > 500:
             try:
-                asyncio.get_event_loop().create_task(
+                asyncio.create_task(
                     self._maybe_backfill(query, answer, sources)
                 )
             except Exception as e:
@@ -432,6 +546,7 @@ sources_count: {len(sources)}
         """从 Top5 切片构建 wiki_context 和 data_context
 
         保证原文至少 3 个 chunk（原文有具体细节，比 wiki 摘要信息量更大）
+        v2.3.5: 添加 token 限制，防止超长 context 导致 API 报错
         """
         # 分离 wiki 和 data chunks
         data_hits = [h for h in context_chunks if h.get("source_type") == "data"]
@@ -443,25 +558,50 @@ sources_count: {len(sources)}
         wiki_parts = []
         data_parts = []
         ref_idx = 0
+        total_chars = 0
+
         for hit in data_hits[:5]:
             ref_idx += 1
-            data_parts.append(
+            text = hit["text"]
+            # 单个 chunk 截断
+            if len(text) > MAX_CHUNK_CHARS:
+                text = text[:MAX_CHUNK_CHARS] + "\n... (内容过长已截断)"
+            chunk_str = (
                 f"[REF-{ref_idx}]【原始片段】\n"
                 f"来源: {hit.get('title', '未知')}\n"
                 f"章节: {hit.get('section_title', '未知')}\n"
-                f"内容:\n{hit['text']}\n"
+                f"内容:\n{text}\n"
             )
+            # 检查是否超出总限制
+            if total_chars + len(chunk_str) > MAX_CONTEXT_CHARS:
+                logger.warning(f"Context 达到字符限制 ({MAX_CONTEXT_CHARS})，停止添加更多内容")
+                break
+            data_parts.append(chunk_str)
+            total_chars += len(chunk_str)
+
         for hit in wiki_hits[:3]:
             ref_idx += 1
+            text = hit["text"]
+            # 单个 chunk 截断
+            if len(text) > MAX_CHUNK_CHARS:
+                text = text[:MAX_CHUNK_CHARS] + "\n... (内容过长已截断)"
             type_label = {"topics": "主题页", "concepts": "概念卡", "entities": "实体页", "moc": "导航页"}.get(
                 hit.get("source_type", ""), "Wiki")
-            wiki_parts.append(
+            chunk_str = (
                 f"[REF-{ref_idx}]【{type_label}】\n"
                 f"标题: {hit.get('title', '未知')}\n"
-                f"内容:\n{hit['text']}\n"
+                f"内容:\n{text}\n"
             )
+            # 检查是否超出总限制
+            if total_chars + len(chunk_str) > MAX_CONTEXT_CHARS:
+                logger.warning(f"Context 达到字符限制 ({MAX_CONTEXT_CHARS})，停止添加更多内容")
+                break
+            wiki_parts.append(chunk_str)
+            total_chars += len(chunk_str)
+
         wiki_context = "\n---\n".join(wiki_parts) if wiki_parts else "_(Wiki 暂无相关页面)_"
         data_context = "\n---\n".join(data_parts) if data_parts else "_(原始文章暂无相关片段)_"
+        logger.debug(f"Context 构建: data={len(data_parts)} chunks, wiki={len(wiki_parts)} chunks, total_chars={total_chars}")
         return wiki_context, data_context
 
     def _select_context_chunks(self, reranked: list, all_candidates: list, min_data: int = 3, total: int = 7) -> list:
@@ -548,7 +688,7 @@ sources_count: {len(sources)}
         weights = INTENT_WEIGHTS.get(intent, INTENT_WEIGHTS["fuzzy"])
 
         # 1. 并行：原始 query 检索 + 查询改写
-        original_results_future = asyncio.get_event_loop().run_in_executor(
+        original_results_future = asyncio.get_running_loop().run_in_executor(
             None, self._retrieve_all, query
         )
         rewrite_future = self._rewrite_query(query)
@@ -559,7 +699,7 @@ sources_count: {len(sources)}
         # 2. 改写 query 补充检索
         extra_queries = [q for q in rewritten_queries if q != query]
         if extra_queries:
-            extra_results = await asyncio.get_event_loop().run_in_executor(
+            extra_results = await asyncio.get_running_loop().run_in_executor(
                 None, self._retrieve_extra, extra_queries
             )
         else:
@@ -600,7 +740,11 @@ sources_count: {len(sources)}
 
         # 4. LLM 流式生成答案
         wiki_context, data_context = self._build_context(context_chunks)
-        prompt = RAG_USER_TEMPLATE.format(query=query, wiki_context=wiki_context, data_context=data_context)
+        few_shot_section = self._load_few_shots()
+        prompt = RAG_USER_TEMPLATE.format(
+            query=query, wiki_context=wiki_context,
+            data_context=data_context, few_shot_section=few_shot_section,
+        )
         # 动态 max_tokens
         context_len = sum(len(h.get("text", "")) for h in context_chunks)
         max_tokens = min(4000, max(2000, context_len // 2))

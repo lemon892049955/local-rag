@@ -23,30 +23,41 @@ def get_bot(use_current_user=True):
     if _bot is None:
         from wechat_bot import Bot
         # 尝试从文件读取 token
-        token = _load_saved_token()
-        if token:
-            _bot = Bot(token=token)
-            logger.info("[iLink] 使用保存的 token 初始化 Bot")
+        creds = _load_saved_token()
+        if creds:
+            _bot = Bot(
+                token=creds.get("token"),
+                account_id=creds.get("account_id"),
+                user_id=creds.get("user_id"),
+                base_url=creds.get("base_url"),
+            )
+            logger.info(f"[iLink] 使用保存的 token 初始化 Bot: {creds.get('account_id')}")
         else:
             _bot = Bot(use_current_user=use_current_user)
     return _bot
 
 
-def _load_saved_token() -> Optional[str]:
+def _load_saved_token() -> Optional[dict]:
     """从文件加载保存的 token"""
     import json
     from pathlib import Path
-    token_file = Path("/app/.ilink_token.json")
+    from config import BASE_DIR
+    token_file = BASE_DIR / ".ilink_token.json"
     if not token_file.exists():
-        # 也检查当前目录
+        # 也检查当前目录（向后兼容）
         token_file = Path(".ilink_token.json")
     if token_file.exists():
         try:
             data = json.loads(token_file.read_text())
-            token = data.get("bot_token", "")
+            token = data.get("bot_token", "") or data.get("token", "")
             if token:
                 logger.info(f"[iLink] 从 {token_file} 加载 token")
-                return token
+                return {
+                    "token": token,
+                    "account_id": data.get("account_id", ""),
+                    "user_id": data.get("user_id", ""),
+                    "base_url": data.get("base_url", ""),
+                }
         except Exception as e:
             logger.warning(f"[iLink] 读取 token 文件失败: {e}")
     return None
@@ -142,14 +153,22 @@ async def login_bot():
         return {"success": False, "error": str(e)}
 
 
-async def _run_bot(bot):
-    """后台运行 Bot 长轮询"""
-    try:
-        await bot.start()
-    except Exception as e:
-        global _bot_running
-        _bot_running = False
-        logger.error(f"iLink Bot 运行异常: {e}")
+async def _run_bot(bot, max_retries: int = 3, retry_delay: float = 30):
+    """后台运行 Bot 长轮询，异常自动重连"""
+    global _bot_running
+    for attempt in range(1, max_retries + 1):
+        try:
+            await bot.start()
+            # 正常退出（bot.stop() 被调用）
+            break
+        except Exception as e:
+            _bot_running = False
+            if attempt < max_retries:
+                logger.warning(f"iLink Bot 异常 (第{attempt}次)，{retry_delay}s 后重连: {e}")
+                await asyncio.sleep(retry_delay)
+                _bot_running = True
+            else:
+                logger.error(f"iLink Bot 重连 {max_retries} 次后仍然失败: {e}")
 
 
 # ===== 消息处理逻辑 =====
@@ -168,6 +187,9 @@ def _extract_urls(text: str) -> list:
 
 async def _handle_text_message(ctx, user_id: str, text: str):
     """处理文本消息 — 意图识别分发"""
+    import time
+    start_time = time.time()
+
     # 帮助命令
     if text in ("帮助", "help", "/help", "?", "？"):
         await ctx.reply(
@@ -194,7 +216,7 @@ async def _handle_text_message(ctx, user_id: str, text: str):
 
     # 否则 → AI 助手对话
     await ctx.reply("🤔 思考中...")
-    asyncio.create_task(_process_assistant_chat(ctx, user_id, text))
+    asyncio.create_task(_process_assistant_chat(ctx, user_id, text, start_time))
 
 
 async def _handle_stats(ctx):
@@ -214,9 +236,20 @@ async def _handle_stats(ctx):
 
 async def _process_ingest(ctx, user_id: str, url: str):
     """后台异步入库"""
+    import time
+    start_time = time.time()
+
     try:
         from services.ingest_pipeline import ingest_url
         result = await ingest_url(url)
+
+        duration_ms = int((time.time() - start_time) * 1000)
+        success = result.get("success", False) or result.get("duplicate", False)
+
+        # 埋点：记录微信入库
+        from utils.analytics import track_ingest, track_bot_message
+        track_ingest(url=url, title=result.get("title"), success=success, duration_ms=duration_ms, user_id=user_id, source="wechat")
+        track_bot_message(user_id=user_id, message_type="ingest", query=url[:100], result="success" if success else "fail", duration_ms=duration_ms)
 
         if result.get("duplicate"):
             await ctx.reply(f"⚠️ 该链接已入库，无需重复添加")
@@ -237,11 +270,18 @@ async def _process_ingest(ctx, user_id: str, url: str):
 
     except Exception as e:
         logger.error(f"[iLink] 入库失败: {url} - {e}")
+        duration_ms = int((time.time() - start_time) * 1000)
+        from utils.analytics import track_bot_message
+        track_bot_message(user_id=user_id, message_type="ingest", query=url[:100], result="fail", duration_ms=duration_ms)
         await ctx.reply(f"❌ 入库出错: {str(e)[:100]}")
 
 
-async def _process_assistant_chat(ctx, user_id: str, message: str):
+async def _process_assistant_chat(ctx, user_id: str, message: str, start_time: float = None):
     """后台 AI 助手对话"""
+    if start_time is None:
+        import time
+        start_time = time.time()
+
     try:
         from assistant.intent import detect_intent
         from assistant.chat_engine import chat_once
@@ -251,14 +291,15 @@ async def _process_assistant_chat(ctx, user_id: str, message: str):
 
         # 构建上下文
         context = ""
+        sources_count = 0
         if intent_result["intent"] == "search":
             try:
-                from retrieval.hybrid_searcher import HybridSearcher
-                from retrieval.indexer import VectorIndexer
-                searcher = HybridSearcher(indexer=VectorIndexer())
+                from main import get_searcher
+                searcher = get_searcher()
                 result = await searcher.search(query=message, top_k=3)
                 answer = result.get("answer", "")
                 sources = result.get("sources", [])
+                sources_count = len(sources)
                 source_list = "\n".join(
                     f"  [{i+1}] {s.get('title', '未知')}" for i, s in enumerate(sources)
                 )
@@ -281,8 +322,19 @@ async def _process_assistant_chat(ctx, user_id: str, message: str):
 
         await ctx.reply(reply)
 
+        # 埋点：记录微信搜索
+        import time
+        duration_ms = int((time.time() - start_time) * 1000)
+        from utils.analytics import track_bot_message, track_search
+        track_bot_message(user_id=user_id, message_type="search", query=message[:100], result="success", duration_ms=duration_ms)
+        track_search(query=message, sources_count=sources_count, duration_ms=duration_ms, user_id=user_id)
+
     except Exception as e:
         logger.error(f"[iLink] 助手对话失败: {message[:50]} - {e}")
+        import time
+        duration_ms = int((time.time() - start_time) * 1000) if start_time else 0
+        from utils.analytics import track_bot_message
+        track_bot_message(user_id=user_id, message_type="search", query=message[:100], result="fail", duration_ms=duration_ms)
         # 降级到纯搜索
         await _process_search(ctx, user_id, message)
 
@@ -290,8 +342,8 @@ async def _process_assistant_chat(ctx, user_id: str, message: str):
 async def _process_search(ctx, user_id: str, query: str):
     """降级搜索"""
     try:
-        from retrieval.hybrid_searcher import HybridSearcher
-        searcher = HybridSearcher()
+        from main import get_searcher
+        searcher = get_searcher()
         result = await searcher.search(query=query, top_k=5)
 
         answer = result.get("answer", "未找到相关内容")

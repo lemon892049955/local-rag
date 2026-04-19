@@ -26,69 +26,23 @@ def print_json(data, indent=2):
 
 async def cmd_ingest(url: str):
     """入库命令"""
-    from ingestion.router import FetcherRouter
-    from transform.llm_cleaner import LLMCleaner
-    from storage.markdown_engine import MarkdownEngine
-    from retrieval.indexer import VectorIndexer
-    from utils.url_utils import check_duplicate
-
     print(f"🔗 URL: {url}")
+    print("📥 正在入库...")
 
-    # 去重检查
-    existing = check_duplicate(url, DATA_DIR)
-    if existing:
-        print(f"⚠️  该 URL 已入库: {existing}")
+    from services.ingest_pipeline import ingest_url
+    result = await ingest_url(url)
+
+    if result.get("duplicate"):
+        print(f"⚠️  该 URL 已入库")
         return
 
-    # 抓取
-    print("📥 正在抓取内容...")
-    router = FetcherRouter()
-    try:
-        raw = await router.fetch(url)
-    except Exception as e:
-        print(f"❌ 抓取失败: {e}")
+    if not result.get("success"):
+        print(f"❌ 入库失败: {result.get('error', '未知错误')}")
         return
 
-    print(f"   标题: {raw.title}")
-    print(f"   来源: {raw.source_platform}")
-    print(f"   内容长度: {len(raw.content)} 字符")
-
-    # LLM 清洗
-    print("🧹 正在 LLM 清洗...")
-    cleaner = LLMCleaner()
-    try:
-        knowledge = await cleaner.clean(
-            title=raw.title,
-            content=raw.content,
-            source=raw.source_platform,
-            author=raw.author,
-            original_tags=raw.original_tags,
-        )
-    except Exception as e:
-        print(f"❌ LLM 清洗失败: {e}")
-        return
-
-    print(f"   清洗后标题: {knowledge.title}")
-    print(f"   摘要: {knowledge.summary}")
-    print(f"   标签: {knowledge.tags}")
-
-    # 落库
-    print("💾 正在落库...")
-    engine = MarkdownEngine()
-    filepath = engine.save(
-        knowledge=knowledge,
-        source_url=url,
-        source_platform=raw.source_platform,
-        author=raw.author,
-    )
-    print(f"   文件: {filepath}")
-
-    # 索引
-    print("🔍 正在建立向量索引...")
-    indexer = VectorIndexer()
-    chunk_count = indexer.index_file(filepath)
-    print(f"   索引切片数: {chunk_count}")
-
+    print(f"   标题: {result.get('title', '未知')}")
+    print(f"   标签: {', '.join(result.get('tags', []))}")
+    print(f"   文件: {result.get('file_path', '')}")
     print(f"\n✅ 入库完成!")
 
 
@@ -96,9 +50,6 @@ async def cmd_ingest_file(file_path: str):
     """文件入库命令 (PDF/图片/音频)"""
     from pathlib import Path
     from ingestion.dispatcher import Dispatcher
-    from transform.llm_cleaner import LLMCleaner
-    from storage.markdown_engine import MarkdownEngine
-    from retrieval.indexer import VectorIndexer
 
     filepath = Path(file_path)
     if not filepath.exists():
@@ -121,51 +72,29 @@ async def cmd_ingest_file(file_path: str):
         print(f"❌ 解析失败: {e}")
         return
 
-    print(f"   标题: {raw.title}")
-    print(f"   内容长度: {len(raw.content)} 字符")
+    # 入库
+    print("💾 正在入库...")
+    from services.ingest_pipeline import ingest_raw
+    result = await ingest_raw(raw, source_url=f"file://{filepath.name}")
 
-    # LLM 清洗
-    print("🧹 正在 LLM 清洗...")
-    cleaner = LLMCleaner()
-    try:
-        knowledge = await cleaner.clean(
-            title=raw.title, content=raw.content,
-            source=raw.source_platform, author=raw.author,
-        )
-    except Exception as e:
-        print(f"❌ LLM 清洗失败: {e}")
+    if not result.get("success"):
+        print(f"❌ 入库失败: {result.get('error', '未知错误')}")
         return
 
-    print(f"   清洗后标题: {knowledge.title}")
-    print(f"   标签: {knowledge.tags}")
-
-    # 落库
-    print("💾 正在落库...")
-    engine = MarkdownEngine()
-    saved_path = engine.save(
-        knowledge=knowledge,
-        source_url=f"file://{filepath.name}",
-        source_platform=raw.source_platform,
-        author=raw.author,
-    )
+    print(f"   标题: {result.get('title', '')}")
+    print(f"   标签: {', '.join(result.get('tags', []))}")
+    print(f"\n✅ 文件入库完成!")
     print(f"   文件: {saved_path}")
-
-    # 索引
-    print("🔍 正在建立向量索引...")
-    indexer = VectorIndexer()
-    chunk_count = indexer.index_file(saved_path)
-    print(f"   索引切片数: {chunk_count}")
-
     print(f"\n✅ 文件入库完成!")
 
 
 async def cmd_search(query: str, top_k: int = 3):
     """检索命令"""
-    from retrieval.searcher import RAGSearcher
+    from main import get_searcher
 
     print(f"🔎 查询: {query}\n")
 
-    searcher = RAGSearcher()
+    searcher = get_searcher()
     result = await searcher.search(query=query, top_k=top_k)
 
     print("📝 回答:")
@@ -183,11 +112,10 @@ async def cmd_search(query: str, top_k: int = 3):
 
 async def cmd_reindex():
     """重建索引"""
-    from retrieval.indexer import VectorIndexer
+    from main import get_indexer
 
     print("🔄 正在重建向量索引...")
-    indexer = VectorIndexer()
-    total = indexer.reindex_all()
+    total = get_indexer().reindex_all()
     print(f"✅ 完成! 共索引 {total} 个切片")
 
 
@@ -214,11 +142,10 @@ def cmd_list():
 
 def cmd_stats():
     """系统状态"""
-    from retrieval.indexer import VectorIndexer
+    from main import get_indexer
 
     file_count = len(list(DATA_DIR.glob("*.md")))
-    indexer = VectorIndexer()
-    idx_stats = indexer.get_stats()
+    idx_stats = get_indexer().get_stats()
 
     print("📊 系统状态:")
     print(f"   知识文件数: {file_count}")

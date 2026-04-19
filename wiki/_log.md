@@ -2,6 +2,131 @@
 
 ## 2026-04-19
 
+- **17:09 INGEST** | 来源: `260419_Don9jVkK_从工程师视角解析Agent、RAG、Skill、MCP：概念、原理与工程实践.md`
+  - 跳过: topics/AI工程化核心概念解析：Agent、RAG、Skill与MCP.md (洞察无增量)
+
+
+- **17:09 INGEST** | 来源: `260419_EBDzZKCT_从工程师视角解析Agent、RAG、Skill、MCP：概念、原理与工程实践.md`
+  - 创建: topics/AI工程化核心概念解析：Agent、RAG、Skill与MCP.md (AI工程化核心概念解析：Agent、RAG、Skill与MCP)
+
+
+- **14:53 INGEST** | 来源: `260419_3PSgxtx3_Anthropic推出Claude_Design：AI驱动的可视化设计协作工具.md`
+  - 实体页: entities/Claude Design.md (Claude Design, product)
+  - 实体更新: entities/Anthropic.md
+  - 创建: entities/Claude Design.md (Claude Design)
+  - 更新: entities/Anthropic.md (追加洞察)
+  - 更新: entities/Claude.md (追加洞察)
+
+
+- **04:08 INGEST** | 来源: `260419_fXdqBjP8_媒体等同理论视角下智能座舱语音助手的人机互动行为研究.md`
+  - 实体页: entities/NOMI.md (NOMI, product)
+  - 跳过: topics/媒体等同理论与智能座舱人机交互研究.md (洞察无增量)
+
+
+- **04:07 INGEST** | 来源: `260419_Gb9sKGjF_自动驾驶接管语音人格对接管绩效的影响研究.md`
+  - 实体页: entities/郭松阳.md (郭松阳, person)
+  - 实体更新: entities/吴剑锋.md
+  - 跳过: topics/自动驾驶接管语音人格特征对接管绩效的影响研究.md (洞察无增量)
+
+
+- **03:46 INGEST** | 来源: `260419_jG5HYHFc_媒体等同理论视角下智能座舱语音助手的人机互动行为研究.md`
+  - 概念卡: concepts/媒体等同理论.md (媒体等同理论)
+  - 概念卡: concepts/录像民族志.md (录像民族志)
+  - 实体更新: entities/OpenAI.md
+  - 创建: topics/媒体等同理论与智能座舱人机交互研究.md (媒体等同理论与智能座舱人机交互研究)
+
+
+- **03:45 INGEST** | 来源: `260419_Ph9EQNnj_自动驾驶接管语音人格特征对接管绩效的影响研究.md`
+  - 概念卡: concepts/相似-吸引理论.md (相似-吸引理论)
+  - 实体页: entities/郭颂扬.md (郭颂扬, person)
+  - 实体页: entities/吴剑锋.md (吴剑锋, person)
+  - 创建: topics/自动驾驶接管语音人格特征对接管绩效的影响研究.md (自动驾驶接管语音人格特征对接管绩效的影响研究)
+
+
+- **03:17 QUERY_BACKFILL_CANDIDATE** | 来源: `产品经理如何做面试准备`
+  - 答案长度: 1618
+  - 来源数: 4
+
+
+- **02:37 INGEST** | 来源: `260419_3PsDNULr_10分钟掌握Markdown核心语法.md`
+  - 创建: topics/Markdown核心语法与高效应用.md (Markdown核心语法与高效应用)
+
+
+- **01:52 QUERY_BACKFILL_CANDIDATE** | 来源: `AI 产品成功的关键是什么？`
+  - 答案长度: 980
+  - 来源数: 3
+
+
+- **01:51 QUERY_BACKFILL_CANDIDATE** | 来源: `好的产品设计应该遵循哪些原则？`
+  - 答案长度: 1226
+  - 来源数: 4
+
+
+- **01:51 QUERY_BACKFILL_CANDIDATE** | 来源: `准备 AI 产品经理面试需要了解哪些内容？`
+  - 答案长度: 2200
+  - 来源数: 5
+
+
+- **01:50 QUERY_BACKFILL_CANDIDATE** | 来源: `如何搭建一个 AI 驱动的个人知识库？`
+  - 答案长度: 1330
+  - 来源数: 3
+
+
+- **01:43 QUERY_BACKFILL_CANDIDATE** | 来源: `AI 产品成功的关键是什么？`
+  - 答案长度: 576
+  - 来源数: 3
+
+
+- **01:43 QUERY_BACKFILL_CANDIDATE** | 来源: `之前那篇讲 AI 编程失败经验的文章提到了哪些问题？`
+  - 答案长度: 619
+  - 来源数: 3
+
+
+- **01:36 QUERY_BACKFILL_CANDIDATE** | 来源: `好的产品设计应该遵循哪些原则？`
+  - 答案长度: 647
+  - 来源数: 4
+
+
+- **01:36 QUERY_BACKFILL_CANDIDATE** | 来源: `准备 AI 产品经理面试需要了解哪些内容？`
+  - 答案长度: 854
+  - 来源数: 5
+
+
+- **01:35 QUERY_BACKFILL_CANDIDATE** | 来源: `Karpathy 的知识库有哪三层架构？`
+  - 答案长度: 708
+  - 来源数: 3
+
+
+- **01:26 QUERY_BACKFILL_CANDIDATE** | 来源: `AI 产品成功的关键是什么？`
+  - 答案长度: 693
+  - 来源数: 3
+
+
+- **01:25 QUERY_BACKFILL_CANDIDATE** | 来源: `之前那篇讲 AI 编程失败经验的文章提到了哪些问题？`
+  - 答案长度: 619
+  - 来源数: 3
+
+
+- **01:25 QUERY_BACKFILL_CANDIDATE** | 来源: `React Hooks 的使用方法是什么？`
+  - 答案长度: 1010
+  - 来源数: 5
+
+
+- **01:17 QUERY_BACKFILL_CANDIDATE** | 来源: `好的产品设计应该遵循哪些原则？`
+  - 答案长度: 647
+  - 来源数: 4
+
+
+- **01:17 QUERY_BACKFILL_CANDIDATE** | 来源: `准备 AI 产品经理面试需要了解哪些内容？`
+  - 答案长度: 854
+  - 来源数: 5
+
+
+- **01:16 QUERY_BACKFILL_CANDIDATE** | 来源: `Karpathy 的知识库有哪三层架构？`
+  - 答案长度: 708
+  - 来源数: 3
+
+
 - **01:11 QUERY_BACKFILL_CANDIDATE** | 来源: `AI 产品成功的关键是什么？`
   - 答案长度: 693
   - 来源数: 3

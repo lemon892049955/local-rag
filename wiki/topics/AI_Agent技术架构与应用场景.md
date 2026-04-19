@@ -40,6 +40,7 @@ AI Agent与Chatbot的区别在于其主动完成工作任务的能力。AI Agent
 [来源: 260409_GRzirhmy_2026年AI_Agent应用层爆发前夜：技术、场景与市场格局解析.md]
 
 ## 相关概念
+- [[OpenAI]]
 
 - [[AI Agent]]
 - [[LLM]]

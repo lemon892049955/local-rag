@@ -53,21 +53,9 @@ async def _build_context(intent_result: dict) -> tuple[str, Optional[dict]]:
     if intent == "search":
         query = params.get("query", "")
         if query:
-            try:
-                from retrieval.hybrid_searcher import HybridSearcher
-                from retrieval.indexer import VectorIndexer
-                searcher = HybridSearcher(indexer=VectorIndexer())
-                result = await searcher.search(query=query, top_k=3)
-                answer = result.get("answer", "")
-                sources = result.get("sources", [])
-                source_list = "\n".join(
-                    f"  [{i+1}] 《{s.get('title', '未知')}》(匹配方式: {s.get('match_type', '')})" for i, s in enumerate(sources)
-                )
-                context = f"以下是从知识库检索到的内容（请在回答中用 [来源: 文章标题] 标注信息出处）:\n\n{answer}\n\n参考来源:\n{source_list}"
-                return context, None
-            except Exception as e:
-                logger.error(f"Search failed: {e}")
-                return f"搜索出错: {e}", None
+            # 不在这里搜索，返回 action 让外层流式处理
+            action = {"type": "search", "query": query}
+            return "", action
 
     elif intent == "ingest":
         urls = params.get("urls", [])
@@ -77,10 +65,9 @@ async def _build_context(intent_result: dict) -> tuple[str, Optional[dict]]:
 
     elif intent == "stats":
         try:
+            from main import get_searcher
+            stats_data = get_searcher().vector_indexer.get_stats()
             from config import DATA_DIR, WIKI_DIR
-            from retrieval.indexer import VectorIndexer
-            indexer = VectorIndexer()
-            indexer_stats = indexer.get_stats()
             file_count = len(list(DATA_DIR.glob("*.md")))
             wiki_count = sum(1 for _ in WIKI_DIR.glob("**/*.md") if not _.name.startswith("_"))
             try:
@@ -92,7 +79,7 @@ async def _build_context(intent_result: dict) -> tuple[str, Optional[dict]]:
                 f"系统状态:\n"
                 f"- 知识文章: {file_count} 篇\n"
                 f"- Wiki 页面: {wiki_count} 个\n"
-                f"- 向量切片: {indexer_stats.get('total_chunks', 0)} 个\n"
+                f"- 向量切片: {stats_data.get('total_chunks', 0)} 个\n"
                 f"- 编译队列: {queue_size} 个任务\n"
             )
             return context, None
@@ -144,51 +131,50 @@ async def chat_sse(req: ChatRequest):
             meta["action"] = action
         yield f"data: {json.dumps(meta, ensure_ascii=False)}\n\n"
 
+        # 如果是搜索动作，流式搜索并构建上下文
+        if action and action.get("type") == "search":
+            query = action.get("query", "")
+            context = ""
+            try:
+                yield f"data: {json.dumps({'type': 'status', 'text': '🔍 正在搜索知识库...'}, ensure_ascii=False)}\n\n"
+                from main import get_searcher
+                searcher = get_searcher()
+                result = await searcher.search(query=query, top_k=3)
+                answer = result.get("answer", "")
+                sources = result.get("sources", [])
+                source_list = "\n".join(
+                    f"  [{i+1}] 《{s.get('title', '未知')}》" for i, s in enumerate(sources)
+                )
+                context = f"以下是从知识库检索到的内容（请在回答中用 [来源: 文章标题] 标注信息出处）:\n\n{answer}\n\n参考来源:\n{source_list}"
+            except Exception as e:
+                logger.error(f"Search failed: {e}")
+                context = f"搜索出错: {e}"
+
+            # 流式 LLM 回复
+            async for chunk in chat_stream(session_id, message, context):
+                yield chunk
+            return
+
         # 如果是入库动作，先触发入库
         if action and action.get("type") == "ingest":
             context_extra = ""
             for url in action.get("urls", []):
                 try:
-                    yield f"data: {json.dumps({'type': 'status', 'text': f'正在入库: {url[:60]}...'}, ensure_ascii=False)}\n\n"
-                    from ingestion.router import FetcherRouter
-                    from transform.llm_cleaner import LLMCleaner
-                    from storage.markdown_engine import MarkdownEngine
-                    from retrieval.indexer import VectorIndexer
-                    from utils.url_utils import check_duplicate
-                    from config import DATA_DIR
-
-                    existing = check_duplicate(url, DATA_DIR)
-                    if existing:
-                        yield f"data: {json.dumps({'type': 'status', 'text': f'⚠️ 该链接已入库'}, ensure_ascii=False)}\n\n"
+                    yield f"data: {json.dumps({'type': 'status', 'text': f'📥 正在入库: {url[:60]}...'}, ensure_ascii=False)}\n\n"
+                    from services.ingest_pipeline import ingest_url
+                    result = await ingest_url(url)
+                    if result.get("duplicate"):
+                        yield f"data: {json.dumps({'type': 'status', 'text': '⚠️ 该链接已入库'}, ensure_ascii=False)}\n\n"
                         context_extra += f"\n链接 {url} 已存在于知识库中。"
-                        continue
-
-                    router_inst = FetcherRouter()
-                    raw = await router_inst.fetch(url)
-                    cleaner = LLMCleaner()
-                    knowledge = await cleaner.clean(
-                        title=raw.title, content=raw.content,
-                        source=raw.source_platform, author=raw.author,
-                        original_tags=raw.original_tags,
-                    )
-                    engine = MarkdownEngine()
-                    filepath = engine.save(
-                        knowledge=knowledge, source_url=url,
-                        source_platform=raw.source_platform, author=raw.author,
-                    )
-                    indexer = VectorIndexer()
-                    indexer.index_file(filepath)
-
-                    yield f"data: {json.dumps({'type': 'status', 'text': f'✅ 入库成功: {knowledge.title}'}, ensure_ascii=False)}\n\n"
-                    context_extra += f"\n入库结果: 「{knowledge.title}」入库成功，标签: {', '.join(knowledge.tags)}"
-
-                    # Wiki 编译入队
-                    try:
-                        from wiki.compile_queue import enqueue_compile
-                        await enqueue_compile(filepath)
-                    except Exception:
-                        pass
-
+                    elif result.get("success"):
+                        title = result.get("title", "")
+                        tags = ", ".join(result.get("tags", []))
+                        yield f"data: {json.dumps({'type': 'status', 'text': f'✅ 入库成功: {title}'}, ensure_ascii=False)}\n\n"
+                        context_extra += f"\n入库结果: 「{title}」入库成功，标签: {tags}"
+                    else:
+                        error_msg = result.get("error", "")[:80]
+                        yield f"data: {json.dumps({'type': 'status', 'text': f'❌ 入库失败: {error_msg}'}, ensure_ascii=False)}\n\n"
+                        context_extra += f"\n入库失败: {result.get('error', '')[:100]}"
                 except Exception as e:
                     yield f"data: {json.dumps({'type': 'status', 'text': f'❌ 入库失败: {str(e)[:80]}'}, ensure_ascii=False)}\n\n"
                     context_extra += f"\n入库失败: {str(e)[:100]}"
@@ -228,31 +214,8 @@ async def chat_sync(req: ChatRequest):
     if action and action.get("type") == "ingest":
         for url in action.get("urls", []):
             try:
-                from ingestion.router import FetcherRouter
-                from transform.llm_cleaner import LLMCleaner
-                from storage.markdown_engine import MarkdownEngine
-                from retrieval.indexer import VectorIndexer
-                from utils.url_utils import check_duplicate
-                from config import DATA_DIR
-
-                existing = check_duplicate(url, DATA_DIR)
-                if existing:
-                    continue
-                router_inst = FetcherRouter()
-                raw = await router_inst.fetch(url)
-                cleaner = LLMCleaner()
-                knowledge = await cleaner.clean(
-                    title=raw.title, content=raw.content,
-                    source=raw.source_platform, author=raw.author,
-                    original_tags=raw.original_tags,
-                )
-                engine = MarkdownEngine()
-                filepath = engine.save(
-                    knowledge=knowledge, source_url=url,
-                    source_platform=raw.source_platform, author=raw.author,
-                )
-                indexer = VectorIndexer()
-                indexer.index_file(filepath)
+                from services.ingest_pipeline import ingest_url
+                await ingest_url(url)
             except Exception:
                 pass
 

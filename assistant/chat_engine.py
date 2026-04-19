@@ -14,6 +14,17 @@ from config import get_llm_config
 
 logger = logging.getLogger(__name__)
 
+# 复用 OpenAI client（避免每次对话 new 一个）
+_client = None
+
+def _get_client():
+    global _client
+    if _client is None:
+        config = get_llm_config()
+        _client = OpenAI(api_key=config["api_key"], base_url=config["base_url"])
+    return _client
+
+
 SYSTEM_PROMPT = """你是 BuddyKnow 的智能助手，一个个人知识库管理系统的 AI 伙伴。
 你帮助用户管理和查询从公众号、小红书、知乎等平台收集的碎片知识。
 
@@ -85,7 +96,7 @@ async def chat_stream(
         SSE 格式字符串
     """
     config = get_llm_config()
-    client = OpenAI(api_key=config["api_key"], base_url=config["base_url"])
+    client = _get_client()
 
     # 构建消息列表
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
@@ -125,7 +136,7 @@ async def chat_stream(
         # 记录助手回复
         add_message(session_id, "assistant", full_answer)
 
-        yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
+        yield f"data: {json.dumps({'type': 'done', 'text': full_answer}, ensure_ascii=False)}\n\n"
 
     except Exception as e:
         logger.error(f"Chat stream error: {e}")

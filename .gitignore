@@ -1,6 +1,7 @@
 # 环境变量
 .env
 .env.local
+.ilink_token.json
 
 # Python
 __pycache__/

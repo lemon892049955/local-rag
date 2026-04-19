@@ -18,8 +18,8 @@ from typing import Optional, List
 
 from openai import OpenAI
 
-from config import get_llm_config
-from .base import BaseFetcher, RawContent, FetchError
+from config import get_vision_config
+from .base import BaseFetcher, RawContent, FetchError, ErrorType
 
 logger = logging.getLogger(__name__)
 
@@ -68,11 +68,22 @@ PROMPT_TABLE = """请提取这张图片中的表格内容，输出为 Markdown �
 1. 保留完整的行列结构，不要遗漏任何单元格
 2. 表头用 | --- | 分隔
 3. 合并单元格拆开为重复内容
-4. 如果表格有标题，用 ## 标注
-5. 数字保持原始精度
-6. 表格外的说明文字也要提取
+4. 如果表格有标题（如"表4-1 xxx"），用 ## 标注
+5. 数字保持原始精度，保留小数位
+6. 括号内的数值（如标准差）保留在原位置
+7. 表格外的说明文字也要提取，放在表格下方
+8. 多级表头用空单元格或合并方式处理
+9. 如果表格跨页或被截断，只提取可见部分
 
-输出 Markdown 表格，不要添加额外解释。"""
+输出示例：
+## 表4-1 反应时间的均值（标准差）
+
+| 变量 | 人格相似 | 人格不相似 |
+|------|----------|------------|
+| 注意转移时间(s) | 1.46 (0.30) | 1.61 (0.50) |
+| 接管时间(s) | 3.08 (0.68) | 3.03 (0.65) |
+
+注意：只输出 Markdown 表格，不要添加额外解释。"""
 
 PROMPT_CODE = """请提取这张代码截图中的完整代码。
 
@@ -125,15 +136,59 @@ class VisionOCR(BaseFetcher):
     """智能图片内容识别 — 基于 Vision LLM
 
     v0.7: 分类→专用prompt→结构化输出
+    v0.8: 单例模式，避免重复检测 API 可用性
     """
 
+    _instance = None
+    _initialized = False
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
     def __init__(self):
-        config = get_llm_config()
+        if VisionOCR._initialized:
+            return
+        VisionOCR._initialized = True
+
+        config = get_vision_config()
         self.client = OpenAI(
             api_key=config["api_key"],
             base_url=config["base_url"],
         )
-        self.model = VISION_MODEL
+        self.model = config.get("model", VISION_MODEL)
+        self._vision_available = None  # 延迟检测
+
+    async def _check_vision_available(self) -> bool:
+        """检测 Vision API 是否可用"""
+        if self._vision_available is not None:
+            return self._vision_available
+
+        try:
+            # 发送一个最小请求测试 API
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": "test"}],
+                max_tokens=5,
+            )
+            self._vision_available = True
+            logger.info("Vision API 可用")
+        except Exception as e:
+            self._vision_available = False
+            error_msg = str(e)
+            # 分类错误
+            if "401" in error_msg or "authentication" in error_msg.lower():
+                self._vision_error = FetchError.auth("vision-api", error_msg)
+            elif "429" in error_msg or "rate" in error_msg.lower():
+                self._vision_error = FetchError.rate_limit("vision-api", error_msg)
+            elif "404" in error_msg or "not found" in error_msg.lower():
+                self._vision_error = FetchError.not_found("vision-api", f"模型不存在: {self.model}")
+            else:
+                self._vision_error = FetchError.api("vision-api", error_msg)
+            logger.warning(f"Vision API 不可用: {self._vision_error.reason}")
+
+        return self._vision_available
 
     async def fetch(self, url: str) -> RawContent:
         """url 参数为图片文件路径或 URL"""
@@ -144,7 +199,7 @@ class VisionOCR(BaseFetcher):
             text = await self.ocr_image_url(url)
 
         if not text or len(text.strip()) < 10:
-            raise FetchError(url, "图片识别未提取到有效内容")
+            raise FetchError.validation(url, "图片识别未提取到有效内容")
 
         return RawContent(
             url=url,
@@ -161,6 +216,10 @@ class VisionOCR(BaseFetcher):
 
     async def ocr_image_url(self, url: str) -> str:
         """OCR 网络图片 URL — 带 Referer 绕过防盗链"""
+        # 检测 Vision API 是否可用
+        if not await self._check_vision_available():
+            return ""
+
         import httpx
 
         headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"}
@@ -178,19 +237,33 @@ class VisionOCR(BaseFetcher):
 
             content_type = resp.headers.get("Content-Type", "")
             if "text/html" in content_type:
-                logger.warning(f"图片下载被防盗链拦截（返回HTML）: {url[:80]}")
+                logger.debug(f"图片被防盗链拦截: {url[:60]}")
                 return ""
             if len(resp.content) < 1000:
-                logger.warning(f"图片太小，可能是占位图: {url[:80]} ({len(resp.content)} bytes)")
+                logger.debug(f"图片过小: {url[:60]} ({len(resp.content)} bytes)")
                 return ""
 
             return await self.ocr_image_bytes(resp.content)
+        except httpx.TimeoutException:
+            logger.debug(f"图片下载超时: {url[:60]}")
+            return ""
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                logger.debug(f"图片不存在: {url[:60]}")
+            else:
+                logger.debug(f"图片下载失败({e.response.status_code}): {url[:60]}")
+            return ""
         except Exception as e:
-            logger.warning(f"图片下载失败: {url[:80]} - {e}")
+            logger.debug(f"图片下载异常: {url[:60]} - {type(e).__name__}")
             return ""
 
     async def ocr_image_bytes(self, img_bytes: bytes, suffix: str = ".png") -> str:
         """智能识别图片：先分类，再用专用 prompt 提取内容"""
+        # 检测 Vision API 是否可用
+        if not await self._check_vision_available():
+            logger.debug("Vision API 不可用，跳过图片识别")
+            return ""
+
         data_url = self._bytes_to_data_url(img_bytes, suffix)
 
         # Step 1: 分类
@@ -317,9 +390,54 @@ class VisionOCR(BaseFetcher):
             return ""
 
     def _bytes_to_data_url(self, img_bytes: bytes, suffix: str = ".png") -> str:
-        """图片字节转 data URL"""
+        """图片字节转 data URL（自动压缩大图）"""
+        # Kimi Vision API 限制：图片 < 10MB，建议 < 1MB
+        MAX_SIZE = 800 * 1024  # 800KB
+
+        if len(img_bytes) > MAX_SIZE:
+            img_bytes = self._compress_image(img_bytes, suffix, target_size=MAX_SIZE)
+
         mime_map = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
                     ".webp": "image/webp", ".gif": "image/gif"}
         mime = mime_map.get(suffix.lower(), "image/png")
         b64 = base64.b64encode(img_bytes).decode("utf-8")
         return f"data:{mime};base64,{b64}"
+
+    def _compress_image(self, img_bytes: bytes, suffix: str, target_size: int) -> bytes:
+        """压缩图片到目标大小"""
+        try:
+            from PIL import Image
+            import io
+
+            img = Image.open(io.BytesIO(img_bytes))
+
+            # 转换 RGBA 为 RGB（JPEG 不支持透明通道）
+            if img.mode == "RGBA":
+                img = img.convert("RGB")
+
+            # 逐步降低质量直到满足大小要求
+            quality = 85
+            while quality >= 30:
+                buf = io.BytesIO()
+                img.save(buf, format="JPEG", quality=quality)
+                if len(buf.getvalue()) <= target_size:
+                    logger.debug(f"图片压缩: {len(img_bytes)} -> {len(buf.getvalue())} bytes (quality={quality})")
+                    return buf.getvalue()
+                quality -= 10
+
+            # 如果还是太大，缩小尺寸
+            scale = 0.8
+            while scale >= 0.3:
+                new_size = (int(img.width * scale), int(img.height * scale))
+                resized = img.resize(new_size, Image.LANCZOS)
+                buf = io.BytesIO()
+                resized.save(buf, format="JPEG", quality=60)
+                if len(buf.getvalue()) <= target_size:
+                    logger.debug(f"图片压缩+缩放: {len(img_bytes)} -> {len(buf.getvalue())} bytes (scale={scale})")
+                    return buf.getvalue()
+                scale -= 0.1
+
+            return buf.getvalue()
+        except Exception as e:
+            logger.warning(f"图片压缩失败，使用原图: {e}")
+            return img_bytes

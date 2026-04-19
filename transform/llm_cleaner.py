@@ -238,11 +238,101 @@ class LLMCleaner:
                 prev_line = stripped
         text = '\n'.join(cleaned_lines)
 
-        # === 8. 清理多余空行（保留最多2个） ===
+        # === 8. 学术论文专用清洗 ===
+        text = self._clean_thesis_noise(text)
+
+        # === 9. 清理多余空行（保留最多2个） ===
         text = re.sub(r'\n{4,}', '\n\n\n', text)
 
-        # === 9. 去首尾空白 ===
+        # === 10. 去首尾空白 ===
         text = text.strip()
+
+        return text
+
+    def _clean_thesis_noise(self, text: str) -> str:
+        """学术论文专用清洗 — 去除学位论文的格式噪声"""
+        # 检测是否是学术论文（通过特征关键词）
+        thesis_indicators = [
+            "硕士学位论文", "博士学位论文", "学位论文",
+            "摘要", "关键词", "Abstract", "Key words",
+            "参考文献", "致谢", "目录",
+        ]
+        is_thesis = sum(1 for kw in thesis_indicators if kw in text[:2000]) >= 3
+        if not is_thesis:
+            return text
+
+        logger.info("检测到学术论文格式，执行专用清洗")
+
+        # === 1. 去除学位论文声明页 ===
+        declaration_patterns = [
+            r'(?:学位论文)?原创性声明.*?(?:本人郑重声明.*?法律责任\.)?',
+            r'学位论文版权使用授权书.*?(?:作者签名.*?日期.*?)+',
+            r'本学位论文作者完全了解.*?(?:可以采用影印.*?保存和汇编本学位论文)?',
+        ]
+        for pat in declaration_patterns:
+            text = re.sub(pat, '', text, flags=re.DOTALL | re.IGNORECASE)
+
+        # === 2. 去除封面元数据块 ===
+        cover_patterns = [
+            r'(?:作者姓名|学生姓名)\s*\n?\s*\S+\s*\n\s*(?:指导教师|导师)\s*\n?\s*\S+',
+            r'(?:中图分类号|分类编号)\s*\S*\s*\n\s*(?:学校代码|单位代码)\s*\S*\s*\n\s*UDC\s*\S*\s*\n\s*(?:密级)\s*\S*',
+            r'研究生类别\s*\S+\s*\n?',
+        ]
+        for pat in cover_patterns:
+            text = re.sub(pat, '', text, flags=re.DOTALL)
+
+        # === 3. 去除万方/知网水印 ===
+        text = re.sub(r'万方数据\s*', '', text)
+        text = re.sub(r'中国知网|CNKI', '', text)
+
+        # === 4. 去除页眉（学校名+学位论文）===
+        header_patterns = [
+            r'\n\s*.{2,20}大学硕士学位论文\s*\n',
+            r'\n\s*.{2,20}大学博士学位论文\s*\n',
+            r'\n\s*.{2,20}学院硕士学位论文\s*\n',
+            r'\n\s*浙江工业大学硕士学位论文\s*\n',
+        ]
+        for pat in header_patterns:
+            text = re.sub(pat, '\n', text)
+
+        # === 5. 去除孤立的罗马数字页码 ===
+        text = re.sub(r'\n\s*[IVXivx]{1,5}\s*\n', '\n', text)
+
+        # === 6. 去除英文摘要的重复（如果前面已有中文摘要）===
+        cn_abstract_match = re.search(r'摘\s*要[：:]\s*([\s\S]{100,2000}?)(?=\n\s*(?:关键词|Key|第|Abstract|$))', text)
+        if cn_abstract_match:
+            en_abstract_pattern = r'\n\s*Abstract\s*[：:]?\s*[\s\S]{50,}(?=\n\s*(?:Key\s*words|第|\d+\s|$))'
+            en_match = re.search(en_abstract_pattern, text)
+            if en_match and len(en_match.group()) > 500:
+                text = re.sub(en_abstract_pattern, '\n', text, count=1)
+
+        # === 7. 去除目录页残留 ===
+        toc_line_pattern = r'\n\s*(?:第[一二三四五六七八九十]+章|\d+\.\d+)\s+.+?\s+\d{1,3}\s*\n'
+        toc_matches = re.findall(toc_line_pattern, text)
+        if len(toc_matches) >= 5:
+            text = re.sub(toc_line_pattern, '\n', text)
+
+        # === 8. 去除"目录"单行 ===
+        text = re.sub(r'\n\s*目录\s*\n', '\n', text)
+        text = re.sub(r'\n\s*目\s*录\s*\n', '\n', text)
+
+        # === 9. 清理连续的签名行 ===
+        text = re.sub(r'(作者签名.*?日期.*?\n){2,}', '', text, flags=re.DOTALL)
+        text = re.sub(r'(导师签名.*?日期.*?\n){2,}', '', text, flags=re.DOTALL)
+
+        # === 10. 去除空括号和方框 ===
+        text = re.sub(r'□', '', text)
+        text = re.sub(r'√', '是', text)
+        text = re.sub(r'', '是', text)
+
+        # === 11. 去除插图清单、表格清单 ===
+        # 检测并移除 "插图清单" 或 "表格清单" 开头的整块内容
+        list_patterns = [
+            r'\n\s*插图清单\s*\n[\s\S]*?(?=\n\s*第[一二三四五六七八九十]+章|\n\s*\d+\s+\d|\n\s*第一章)',
+            r'\n\s*表格清单\s*\n[\s\S]*?(?=\n\s*第[一二三四五六七八九十]+章|\n\s*\d+\s+\d|\n\s*第一章)',
+        ]
+        for pat in list_patterns:
+            text = re.sub(pat, '\n', text)
 
         return text
 

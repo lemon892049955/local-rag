@@ -7,6 +7,7 @@
 - 编译状态通知
 """
 
+import os
 import asyncio
 import logging
 import random
@@ -21,6 +22,10 @@ logger = logging.getLogger(__name__)
 # 调度器状态
 _scheduler_task: Optional[asyncio.Task] = None
 _push_subscribers: set = set()  # 企微 user_id 集合
+_last_push: dict = {}  # {push_type: last_push_datetime} 防重复推送
+
+# 服务地址（从环境变量读取，避免硬编码）
+SERVICE_URL = os.getenv("SERVICE_URL", "http://localhost:8900")
 
 
 def add_subscriber(user_id: str):
@@ -78,7 +83,7 @@ async def generate_weekly_digest() -> str:
             f"知识库总计: {total_count} 篇文章 / {wiki_count} 个 Wiki 页面\n\n"
             f"热门标签: {tag_str}\n\n"
             f"新增文章:\n{titles}\n\n"
-            f"💡 访问 http://124.222.99.141:8900 查看详情"
+            f"💡 访问 {SERVICE_URL} 查看详情"
         )
         return digest
 
@@ -234,6 +239,22 @@ def get_pending_notifications(mark_read: bool = True) -> list:
 
 # ===== 调度器 =====
 
+async def _maybe_push(push_type: str, key: str, gen_func) -> bool:
+    """防重复推送：同一 key（如 '2026-04-19_weekly'）只推一次"""
+    global _last_push
+    now = datetime.now()
+    push_id = f"{now.strftime('%Y-%m-%d')}_{key}"
+    if _last_push.get(push_type) == push_id:
+        return False
+    content = await gen_func()
+    if content:
+        await push_to_all(content)
+        _last_push[push_type] = push_id
+        logger.info(f"已推送: {push_type}")
+        return True
+    return False
+
+
 async def scheduler_loop():
     """主调度循环 — 每小时检查一次是否有任务需要执行"""
     logger.info("推送调度器已启动")
@@ -246,37 +267,53 @@ async def scheduler_loop():
 
             # 每周一 9:00 — 周报
             if weekday == 0 and hour == 9:
-                digest = await generate_weekly_digest()
-                if digest:
-                    await push_to_all(digest)
-                    logger.info("已推送每周摘要")
+                await _maybe_push("weekly", f"w{now.isocalendar()[1]}", generate_weekly_digest)
 
             # 每周三/五 12:00 — 知识回顾
             if weekday in (2, 4) and hour == 12:
-                review = await generate_knowledge_review()
-                if review:
-                    await push_to_all(review)
-                    logger.info("已推送知识回顾")
+                await _maybe_push("review", now.strftime('%Y-%m-%d'), generate_knowledge_review)
 
             # 每周六 10:00 — 关联推荐
             if weekday == 5 and hour == 10:
-                rec = await generate_association_recommendation()
-                if rec:
-                    await push_to_all(rec)
-                    logger.info("已推送关联推荐")
+                await _maybe_push("association", now.strftime('%Y-%m-%d'), generate_association_recommendation)
 
             # 每月 1 号 9:00 — 月度健康
             if now.day == 1 and hour == 9:
-                health = await generate_monthly_health()
-                if health:
-                    await push_to_all(health)
-                    logger.info("已推送月度健康报告")
+                await _maybe_push("health", now.strftime('%Y-%m'), generate_monthly_health)
+
+            # 每天 8:00 — 热榜抓取
+            if hour == 8:
+                await _maybe_fetch_discover(now.strftime('%Y-%m-%d'))
 
         except Exception as e:
             logger.error(f"调度器异常: {e}")
 
         # 每小时检查一次
         await asyncio.sleep(3600)
+
+
+async def _maybe_fetch_discover(date_key: str) -> bool:
+    """每日热榜抓取（防重复）"""
+    global _last_push
+    push_id = f"discover_{date_key}"
+
+    if _last_push.get("discover") == push_id:
+        return False
+
+    try:
+        from discovery.crawler import fetch_all_sources
+        from discovery.store import add_items
+
+        items = await fetch_all_sources()
+        added = add_items(items)
+
+        _last_push["discover"] = push_id
+        logger.info(f"热榜抓取完成: {len(items)} 条，新增 {added} 条")
+        return True
+
+    except Exception as e:
+        logger.error(f"热榜抓取失败: {e}")
+        return False
 
 
 async def start_scheduler():

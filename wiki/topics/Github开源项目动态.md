@@ -32,6 +32,8 @@ sources:
 [来源: 260409_CX3kFaUS_Github一周热点109期：Claude_Code开源及其他项目.md]
 
 ## 相关概念
+- [[Claude]]
+- [[Claude Code]]
 
 - [[人工智能]]
 - [[Github]]

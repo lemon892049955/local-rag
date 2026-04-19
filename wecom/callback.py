@@ -211,8 +211,8 @@ async def process_file_ingest(user_id: str, file_url: str, file_type: str):
                         text = await ocr.ocr_image_url(img_url)
                         if text:
                             ocr_results.append((i + 1, text))
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug(f"图片 OCR 失败: {e}")
 
                 if ocr_results:
                     has_placeholders = "[IMG_" in raw.content
@@ -224,36 +224,23 @@ async def process_file_ingest(user_id: str, file_url: str, file_type: str):
                     else:
                         ocr_text = "\n\n".join(f"[图片{idx}内容: {text}]" for idx, text in ocr_results)
                         raw.content = raw.content + "\n\n---以下是图片内容---\n\n" + ocr_text
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"OCR 处理失败: {e}")
 
-        # 后续复用入库管线
-        from transform.llm_cleaner import LLMCleaner
-        from storage.markdown_engine import MarkdownEngine
-        from retrieval.indexer import VectorIndexer
+        # 入库管线
+        from services.ingest_pipeline import ingest_raw
+        result = await ingest_raw(raw, source_url=file_url)
 
-        cleaner = LLMCleaner()
-        knowledge = await cleaner.clean(
-            title=raw.title, content=raw.content,
-            source=raw.source_platform, author=raw.author,
-        )
-
-        engine = MarkdownEngine()
-        filepath = engine.save(
-            knowledge=knowledge, source_url=file_url,
-            source_platform=raw.source_platform, author=raw.author,
-        )
-
-        indexer = VectorIndexer()
-        indexer.index_file(filepath)
+        if not result.get("success"):
+            raise Exception(result.get("error", "入库失败"))
 
         try:
             from wiki.compile_queue import enqueue_compile
-            await enqueue_compile(filepath, user_id=user_id)
-        except Exception:
-            pass
+            await enqueue_compile(result["file_path"], user_id=user_id)
+        except Exception as e:
+            logger.warning(f"Wiki 编译入队失败: {e}")
 
-        notify_ingest_success(user_id, knowledge.title, knowledge.tags, file_url)
+        notify_ingest_success(user_id, result.get("title", ""), result.get("tags", []), file_url)
 
         # 删除临时文件（跳过原始本地路径）
         if tmp_path != file_url:
@@ -304,82 +291,18 @@ async def process_media_ingest(user_id: str, media_id: str, media_type: str, fil
 async def process_ingest(user_id: str, url: str):
     """后台异步入库"""
     try:
-        from ingestion.router import FetcherRouter
-        from transform.llm_cleaner import LLMCleaner
-        from storage.markdown_engine import MarkdownEngine
-        from retrieval.indexer import VectorIndexer
-        from utils.url_utils import check_duplicate
-        from config import DATA_DIR
+        from services.ingest_pipeline import ingest_url
+        result = await ingest_url(url)
 
-        # 去重
-        existing = check_duplicate(url, DATA_DIR)
-        if existing:
-            send_text_msg(user_id, f"⚠️ 该链接已入库，无需重复添加")
+        if result.get("duplicate"):
+            send_text_msg(user_id, "⚠️ 该链接已入库，无需重复添加")
             return
 
-        # 抓取
-        router = FetcherRouter()
-        raw = await router.fetch(url)
+        if not result.get("success"):
+            notify_ingest_fail(user_id, result.get("error", "未知错误"), url)
+            return
 
-        # 图片 OCR（如果抓取器提取了图片列表）
-        if raw.images:
-            try:
-                from ingestion.vision_ocr import VisionOCR
-                ocr = VisionOCR()
-                ocr_results = []
-                for i, img_url in enumerate(raw.images[:5]):
-                    try:
-                        text = await ocr.ocr_image_url(img_url)
-                        if text:
-                            ocr_results.append((i + 1, text))
-                    except Exception:
-                        pass
-
-                if ocr_results:
-                    has_placeholders = "[IMG_" in raw.content
-                    if has_placeholders:
-                        import re as _re
-                        for idx, text in ocr_results:
-                            raw.content = raw.content.replace(f"[IMG_{idx}]", f"[图片{idx}内容: {text}]")
-                        raw.content = _re.sub(r'\[IMG_\d+\]', '[图片: 无法识别]', raw.content)
-                    else:
-                        ocr_text = "\n\n".join(f"[图片{idx}内容: {text}]" for idx, text in ocr_results)
-                        raw.content = raw.content + "\n\n---以下是图片内容---\n\n" + ocr_text
-            except Exception:
-                pass
-
-        # 清洗
-        cleaner = LLMCleaner()
-        knowledge = await cleaner.clean(
-            title=raw.title,
-            content=raw.content,
-            source=raw.source_platform,
-            author=raw.author,
-            original_tags=raw.original_tags,
-        )
-
-        # 落库
-        engine = MarkdownEngine()
-        filepath = engine.save(
-            knowledge=knowledge,
-            source_url=url,
-            source_platform=raw.source_platform,
-            author=raw.author,
-        )
-
-        # 索引
-        indexer = VectorIndexer()
-        indexer.index_file(filepath)
-
-        # Wiki 编译入队
-        try:
-            from wiki.compile_queue import enqueue_compile
-            await enqueue_compile(filepath, user_id=user_id)
-        except Exception:
-            pass
-
-        # 成功通知
-        notify_ingest_success(user_id, knowledge.title, knowledge.tags, url)
+        notify_ingest_success(user_id, result.get("title", ""), result.get("tags", []), url)
 
     except Exception as e:
         logger.error(f"入库失败: {url} - {e}")
@@ -389,9 +312,8 @@ async def process_ingest(user_id: str, url: str):
 async def process_search(user_id: str, query: str):
     """后台异步搜索"""
     try:
-        from retrieval.hybrid_searcher import HybridSearcher
-
-        searcher = HybridSearcher()
+        from main import get_searcher
+        searcher = get_searcher()
         result = await searcher.search(query=query, top_k=5)
 
         answer = result.get("answer", "未找到相关内容")
@@ -429,16 +351,15 @@ async def process_assistant_chat(user_id: str, message: str):
         context = ""
         if intent_result["intent"] == "search":
             try:
-                from retrieval.hybrid_searcher import HybridSearcher
-                from retrieval.indexer import VectorIndexer
-                searcher = HybridSearcher(indexer=VectorIndexer())
+                from main import get_searcher
+                searcher = get_searcher()
                 result = await searcher.search(query=message, top_k=3)
                 answer = result.get("answer", "")
                 sources = result.get("sources", [])
                 source_list = "\n".join(f"  [{i+1}] {s.get('title', '未知')}" for i, s in enumerate(sources))
                 context = f"知识库搜索结果:\n\n{answer}\n\n参考来源:\n{source_list}"
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"OCR 处理失败: {e}")
         elif intent_result["intent"] == "stats":
             from config import DATA_DIR, WIKI_DIR
             file_count = len(list(DATA_DIR.glob("*.md")))

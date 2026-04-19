@@ -169,7 +169,7 @@
 
     <nav class="flex-1 overflow-y-auto py-2 px-2">
         <div class="mb-3">
-            <template x-for="nav in [{id:'graph',icon:'🔗',label:'知识图谱'},{id:'index',icon:'📑',label:'知识索引'},{id:'ingest',icon:'➕',label:'入库'},{id:'search',icon:'🔍',label:'搜索'}]" :key="nav.id">
+            <template x-for="nav in [{id:'knowledge',icon:'📚',label:'知识库'},{id:'content',icon:'📥',label:'内容管理'},{id:'search',icon:'🔍',label:'搜索'}]" :key="nav.id">
                 <div @click="setPage(nav.id)" class="sidebar-item rounded-lg px-3 py-2 text-sm flex items-center gap-2 cursor-pointer mb-0.5" :class="page===nav.id&&'active'">
                     <span x-text="nav.icon" class="w-5 text-center flex-shrink-0"></span>
                     <span x-show="!sidebarCollapsed" x-text="nav.label" class="truncate"></span>
@@ -218,34 +218,35 @@
 <!-- ===== 主内容区 ===== -->
 <main class="flex-1 min-h-screen overflow-x-hidden">
 
-    <!-- ===== 知识图谱 (融合 Wiki) ===== -->
-    <div x-show="page==='graph'" x-cloak class="h-screen flex flex-col">
-        <!-- 顶栏 -->
+    <!-- ===== 知识库 (合并图谱+索引) ===== -->
+    <div x-show="page==='knowledge'" x-cloak class="h-screen flex flex-col">
+        <!-- 顶栏 + Tab 切换 -->
         <div class="h-12 flex items-center justify-between px-5 border-b border-gray-100 bg-white/80 backdrop-blur flex-shrink-0">
-            <div class="flex items-center gap-3">
-                <h1 class="font-semibold text-gray-800 text-sm">知识图谱</h1>
-                <span class="text-[11px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full" x-text="wikiPages.length+' Wiki 页面 · '+stats.knowledge_files+' 篇原始文章'"></span>
+            <div class="flex items-center gap-4">
+                <div class="flex bg-gray-100 rounded-lg p-0.5">
+                    <button @click="knowledgeView='graph'" :class="knowledgeView==='graph'?'bg-white shadow-sm':''"
+                        class="px-3 py-1 rounded text-xs font-medium transition">图谱</button>
+                    <button @click="knowledgeView='list'" :class="knowledgeView==='list'?'bg-white shadow-sm':''"
+                        class="px-3 py-1 rounded text-xs font-medium transition">列表</button>
+                </div>
+                <span class="text-[11px] text-gray-400" x-text="wikiPages.length+' Wiki · '+stats.knowledge_files+' 篇文章'"></span>
             </div>
-            <div class="flex items-center gap-3 text-[11px] text-gray-400">
-                <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:hsla(210,65%,78%,0.5)"></span> 少</span>
-                <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:hsla(240,80%,55%,0.8)"></span><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:hsla(270,90%,45%,1)"></span> 多</span>
-                <span class="flex items-center gap-1"><span class="w-4 inline-block" style="height:0;border-top:1px dashed #94a3b8"></span> 关联</span>
-                <button @click="showPanel=!showPanel" class="ml-1 px-2 py-0.5 rounded bg-gray-100 hover:bg-gray-200 text-gray-500 text-[11px] transition">
-                    <span x-text="showPanel?'⟩':'⟨'"></span>
+            <div class="flex items-center gap-2">
+                <button x-show="knowledgeView==='graph'" @click="showPanel=!showPanel" class="px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-500 text-[11px] transition">
+                    <span x-text="showPanel?'隐藏面板':'显示面板'"></span>
                 </button>
             </div>
         </div>
-        <div class="flex-1 flex overflow-hidden">
-            <!-- Wiki 图谱 (主区域) -->
+
+        <!-- 图谱视图 -->
+        <div x-show="knowledgeView==='graph'" class="flex-1 flex overflow-hidden">
             <div class="flex-1 relative" id="wiki-graph-container">
                 <svg id="wiki-graph-svg"></svg>
-                <!-- Tooltip -->
-                <div x-show="wikiHoveredNode" x-cloak class="absolute bg-white/98 dark:bg-surface-800/98 rounded-lg shadow-lg border border-gray-200 dark:border-gray-600 px-4 py-3 max-w-xs z-10 pointer-events-none"
+                <div x-show="wikiHoveredNode" x-cloak class="absolute bg-white/98 rounded-lg shadow-lg border border-gray-200 px-4 py-3 max-w-xs z-10 pointer-events-none"
                      :style="`left:${wikiTooltipX}px;top:${wikiTooltipY}px`">
-                    <div class="font-medium text-sm text-gray-900 dark:text-gray-100" x-text="wikiHoveredNode?.label"></div>
+                    <div class="font-medium text-sm text-gray-900" x-text="wikiHoveredNode?.label"></div>
                     <div class="text-[11px] text-gray-500 mt-1" x-text="(wikiHoveredNode?.count||0)+' 篇关联文章'"></div>
                 </div>
-                <!-- 右下角频次过滤控件 -->
                 <div class="absolute bottom-4 right-4 z-10 bg-white/95 backdrop-blur rounded-xl shadow-md border border-gray-200/80 px-4 py-3" style="min-width:180px">
                     <div class="flex items-center justify-between mb-2">
                         <span class="text-[11px] font-medium text-gray-600">频次过滤</span>
@@ -253,27 +254,20 @@
                     </div>
                     <input type="range" min="1" :max="Math.max(5,wikiGraphData?Math.max(...wikiGraphData.nodes.map(n=>n.count)):5)" x-model.number="graphMinCount" @input="renderWikiGraph()"
                            class="w-full h-1.5 rounded-full appearance-none cursor-pointer accent-blue-500 bg-gray-200">
-                    <div class="flex justify-between mt-1 text-[9px] text-gray-400">
-                        <span>1 (全部)</span>
-                        <span x-text="wikiGraphData?Math.max(...wikiGraphData.nodes.map(n=>n.count)):''"></span>
-                    </div>
                 </div>
             </div>
-            <!-- 右侧面板 (合并) -->
-            <div x-show="showPanel" x-cloak class="w-64 border-l border-gray-100 bg-white flex-shrink-0 overflow-y-auto transition-all">
-                <!-- 工具按钮 -->
+            <!-- 右侧面板 -->
+            <div x-show="showPanel" x-cloak class="w-64 border-l border-gray-100 bg-white flex-shrink-0 overflow-y-auto">
                 <div class="p-3 border-b border-gray-50 flex gap-2 flex-wrap">
                     <button @click="loadWikiLog()" class="flex-1 text-[10px] text-brand-500 hover:text-brand-700 px-2 py-1.5 rounded-lg bg-brand-50 hover:bg-brand-100 transition text-center">编译日志</button>
                     <button @click="runWikiInspect()" class="flex-1 text-[10px] text-brand-500 hover:text-brand-700 px-2 py-1.5 rounded-lg bg-brand-50 hover:bg-brand-100 transition text-center">健康检查</button>
                     <button @click="showSubscriptions=!showSubscriptions;if(showSubscriptions)loadSubscriptions()" class="flex-1 text-[10px] text-brand-500 hover:text-brand-700 px-2 py-1.5 rounded-lg bg-brand-50 hover:bg-brand-100 transition text-center">概念订阅</button>
                 </div>
-                <!-- 概念订阅 -->
                 <div x-show="showSubscriptions" x-cloak class="p-3 border-b border-gray-50 fade-in">
                     <div class="flex items-center justify-between mb-2">
                         <span class="text-[10px] font-semibold text-gray-400 uppercase">概念订阅</span>
                         <button @click="showSubscriptions=false" class="text-gray-400 hover:text-gray-600 text-[10px]">关闭</button>
                     </div>
-                    <p class="text-[10px] text-gray-400 mb-2">添加你关注的概念，后续入库文章涉及时自动关联</p>
                     <div class="flex gap-1 mb-2">
                         <input x-model="subConceptName" placeholder="概念名..." class="flex-1 text-[11px] border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-brand-400">
                         <button @click="addSubscription()" :disabled="!subConceptName.trim()" class="text-[10px] bg-brand-600 text-white px-2 py-1 rounded hover:bg-brand-700 disabled:bg-gray-300">订阅</button>
@@ -285,10 +279,8 @@
                                 <button @click="removeSubscription(typeof sub==='string'?sub:sub.name)" class="text-[10px] text-gray-300 group-hover:text-red-400">&times;</button>
                             </div>
                         </template>
-                        <div x-show="!subscriptions.length" class="text-[10px] text-gray-400 py-2 text-center">暂无订阅</div>
                     </div>
                 </div>
-                <!-- 健康检查 -->
                 <div x-show="wikiInspect" x-cloak class="p-3 border-b border-gray-50 fade-in">
                     <div class="flex items-center justify-between mb-1">
                         <span class="text-[10px] font-semibold text-gray-400 uppercase">检查结果</span>
@@ -298,7 +290,6 @@
                     <div x-show="wikiInspect?.orphan_pages?.length" class="text-[10px] text-amber-600">孤立: <span x-text="wikiInspect?.orphan_pages?.join('、')"></span></div>
                     <div x-show="wikiInspect?.missing_pages?.length" class="text-[10px] text-red-500">缺失: <span x-text="wikiInspect?.missing_pages?.map(p=>'[['+p+']]').join('、')"></span></div>
                 </div>
-                <!-- 编译日志 -->
                 <div x-show="wikiLogContent" x-cloak class="p-3 border-b border-gray-50 fade-in">
                     <div class="flex items-center justify-between mb-1">
                         <span class="text-[10px] font-semibold text-gray-400 uppercase">编译日志</span>
@@ -306,7 +297,6 @@
                     </div>
                     <div class="prose text-[11px] max-h-40 overflow-y-auto" x-html="renderMd(wikiLogContent)"></div>
                 </div>
-                <!-- 选中标签的文章列表 -->
                 <div x-show="selectedTagNode" x-cloak class="p-3 border-b border-gray-50 fade-in">
                     <div class="flex items-center justify-between mb-2">
                         <span class="text-xs font-semibold text-brand-600" x-text="'# '+(selectedTagNode?.label||'')"></span>
@@ -319,21 +309,18 @@
                                 <span class="platform-icon text-[8px]" :class="platformBg(art.platform)" x-text="platformEmoji(art.platform)"></span>
                                 <div class="flex-1 min-w-0">
                                     <div class="text-[11px] font-medium text-gray-700 group-hover:text-brand-600 truncate" x-text="art.title"></div>
-                                    <div class="text-[9px] text-gray-400 truncate" x-text="art.summary"></div>
                                 </div>
-                                <svg class="w-3 h-3 text-gray-300 group-hover:text-brand-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
                             </div>
                         </template>
                     </div>
                 </div>
-                <!-- 时间轴 -->
                 <div class="p-3">
                     <div class="text-[10px] font-semibold text-gray-400 uppercase tracking-widest mb-3">入库时间轴</div>
                     <div class="relative pl-5 space-y-2.5">
-                        <div class="absolute left-[7px] top-1 bottom-1 w-px bg-gradient-to-b from-brand-400 to-brand-100 dark:from-brand-600 dark:to-brand-900"></div>
+                        <div class="absolute left-[7px] top-1 bottom-1 w-px bg-gradient-to-b from-brand-400 to-brand-100"></div>
                         <template x-for="item in timeline.slice(0,8)" :key="item.file_path">
                             <div class="relative cursor-pointer group" @click="openDetailByPath(item.file_path)">
-                                <div class="absolute -left-5 top-0.5 w-2.5 h-2.5 rounded-full border-2 border-brand-400 bg-white dark:bg-surface-800 group-hover:bg-brand-400 group-hover:scale-110 transition"></div>
+                                <div class="absolute -left-5 top-0.5 w-2.5 h-2.5 rounded-full border-2 border-brand-400 bg-white group-hover:bg-brand-400 transition"></div>
                                 <div class="flex items-center gap-1.5 mb-0.5">
                                     <span class="platform-icon text-[8px]" :class="platformBg(item.platform)" x-text="platformEmoji(item.platform)"></span>
                                     <span class="text-[11px] font-medium text-gray-700 group-hover:text-brand-600 transition truncate" x-text="item.title"></span>
@@ -345,50 +332,46 @@
                 </div>
             </div>
         </div>
-    </div>
 
-    <!-- ===== 知识索引 ===== -->
-    <div x-show="page==='index'" x-cloak class="fade-in">
-        <div class="h-12 flex items-center justify-between px-5 border-b border-gray-100 bg-white/80 backdrop-blur">
-            <div class="flex items-center gap-2">
-                <h1 class="font-semibold text-gray-800 text-sm" x-text="activeCategory||'全部知识'"></h1>
-                <span class="text-[11px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full" x-text="filteredList.length+'篇'"></span>
-            </div>
-            <button @click="activeCategory='';loadKnowledge()" x-show="activeCategory" class="text-[11px] text-brand-500 hover:text-brand-700">清除筛选</button>
-        </div>
-        <div class="p-5 space-y-3 max-w-5xl mx-auto">
-            <template x-for="item in filteredList" :key="item.file_path">
-                <div class="bg-white rounded-xl p-4 border border-gray-100 card-hover cursor-pointer" @click="openDetail(item)">
-                    <div class="flex items-start gap-3">
-                        <div class="w-1 self-stretch rounded-full flex-shrink-0" :class="platformStripe(item.source_platform)"></div>
-                        <div class="flex-1 min-w-0">
-                            <div class="flex items-center gap-2 mb-1">
-                                <span class="platform-icon text-[9px]" :class="platformBg(item.source_platform)" x-text="platformEmoji(item.source_platform)"></span>
-                                <h3 class="font-semibold text-gray-800 text-sm truncate" x-text="item.title"></h3>
-                            </div>
-                            <p class="text-xs text-gray-500 line-clamp-2 leading-relaxed" x-text="item.summary"></p>
-                            <div class="flex items-center gap-2 mt-2 flex-wrap">
-                                <template x-for="tag in (item.tags||[])" :key="tag">
-                                    <span class="tag bg-brand-50 text-brand-700 dark:bg-brand-800/20 dark:text-brand-300 cursor-pointer" @click.stop="searchByTag(tag)" x-text="tag"></span>
-                                </template>
-                                <span class="text-[10px] text-gray-400 ml-auto" x-text="(item.author?item.author+' · ':'')+relativeTime(item.created_at)"></span>
+        <!-- 列表视图 -->
+        <div x-show="knowledgeView==='list'" class="flex-1 overflow-y-auto">
+            <div class="p-5 space-y-3 max-w-5xl mx-auto">
+                <template x-for="item in filteredList" :key="item.file_path">
+                    <div class="bg-white rounded-xl p-4 border border-gray-100 card-hover cursor-pointer" @click="openDetail(item)">
+                        <div class="flex items-start gap-3">
+                            <div class="w-1 self-stretch rounded-full flex-shrink-0" :class="platformStripe(item.source_platform)"></div>
+                            <div class="flex-1 min-w-0">
+                                <div class="flex items-center gap-2 mb-1">
+                                    <span class="platform-icon text-[9px]" :class="platformBg(item.source_platform)" x-text="platformEmoji(item.source_platform)"></span>
+                                    <h3 class="font-semibold text-gray-800 text-sm truncate" x-text="item.title"></h3>
+                                </div>
+                                <p class="text-xs text-gray-500 line-clamp-2 leading-relaxed" x-text="item.summary"></p>
+                                <div class="flex items-center gap-2 mt-2 flex-wrap">
+                                    <template x-for="tag in (item.tags||[])" :key="tag">
+                                        <span class="tag bg-brand-50 text-brand-700 cursor-pointer" @click.stop="searchByTag(tag)" x-text="tag"></span>
+                                    </template>
+                                    <span class="text-[10px] text-gray-400 ml-auto" x-text="(item.author?item.author+' · ':'')+relativeTime(item.created_at)"></span>
+                                </div>
                             </div>
                         </div>
                     </div>
-                </div>
-            </template>
+                </template>
+            </div>
         </div>
     </div>
 
     <!-- ===== 详情页 ===== -->
     <div x-show="page==='detail'" x-cloak class="fade-in">
         <div class="h-12 flex items-center justify-between px-5 border-b border-gray-100 bg-white/80 backdrop-blur">
-            <button @click="page=prevPage||'index';editMode=false" class="text-xs text-brand-600 hover:text-brand-800 flex items-center gap-1">
+            <button @click="page=prevPage||'knowledge';editMode=false" class="text-xs text-brand-600 hover:text-brand-800 flex items-center gap-1">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>返回
             </button>
             <div class="flex items-center gap-2" x-show="detailData&&!detailLoading">
                 <button x-show="!editMode" @click="editMode=true;editContent=detailData?.content||''" class="text-xs text-gray-500 hover:text-brand-600 flex items-center gap-1 px-3 py-1.5 rounded-lg hover:bg-brand-50 transition">
                     <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>编辑
+                </button>
+                <button x-show="!editMode" @click="deleteKnowledge()" class="text-xs text-gray-400 hover:text-red-600 flex items-center gap-1 px-3 py-1.5 rounded-lg hover:bg-red-50 transition">
+                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>删除
                 </button>
                 <button x-show="editMode" @click="saveEdit()" :disabled="editSaving" class="text-xs text-white bg-brand-600 hover:bg-brand-700 px-3 py-1.5 rounded-lg transition flex items-center gap-1">
                     <span x-show="editSaving" class="spinner" style="width:12px;height:12px;border-width:2px"></span>
@@ -420,96 +403,176 @@
         </div>
     </div>
 
-    <!-- ===== 入库 ===== -->
-    <div x-show="page==='ingest'" x-cloak class="fade-in">
-        <div class="h-12 flex items-center px-5 border-b border-gray-100 bg-white/80 backdrop-blur"><h1 class="font-semibold text-gray-800 text-sm">入库新知识</h1></div>
-        <div class="p-5 max-w-3xl mx-auto">
-            <!-- URL 入库 -->
-            <p class="text-xs text-gray-500 mb-3">粘贴链接，自动完成抓取 → 清洗 → 落库 → Wiki 编译。可连续添加，自动排队。</p>
-            <div class="bg-white rounded-xl border border-gray-100 p-5 mb-4">
-                <div class="flex gap-2">
-                    <input x-model="ingestUrl" type="text" placeholder="粘贴链接或分享文本（自动提取URL）"
-                        class="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"
-                        @keydown.enter="queueIngest()">
-                    <button @click="queueIngest()" :disabled="!ingestUrl.trim()"
-                        class="bg-brand-600 hover:bg-brand-700 disabled:bg-gray-300 text-white px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition">入库</button>
+    <!-- ===== 内容管理 (合并入库+发现) ===== -->
+    <div x-show="page==='content'" x-cloak class="h-screen flex flex-col">
+        <!-- 顶栏 + Tab 切换 -->
+        <div class="h-12 flex items-center justify-between px-5 border-b border-gray-100 bg-white/80 backdrop-blur flex-shrink-0">
+            <div class="flex items-center gap-4">
+                <div class="flex bg-gray-100 rounded-lg p-0.5">
+                    <button @click="contentTab='ingest'" :class="contentTab==='ingest'?'bg-white shadow-sm':''"
+                        class="px-3 py-1 rounded text-xs font-medium transition">手动入库</button>
+                    <button @click="contentTab='discover';if(!discoverItems.length)loadDiscoverItems()" :class="contentTab==='discover'?'bg-white shadow-sm':''"
+                        class="px-3 py-1 rounded text-xs font-medium transition">热榜发现</button>
                 </div>
-                <label class="flex items-center gap-1.5 mt-2 cursor-pointer select-none">
-                    <input type="checkbox" x-model="ingestForce" class="w-3.5 h-3.5 accent-brand-500">
-                    <span class="text-xs text-gray-500">强制重新入库（删除旧文件后重新抓取+清洗，适用于之前入库质量不佳的内容）</span>
-                </label>
+                <span x-show="contentTab==='discover'" class="text-[11px] text-gray-400" x-text="'待入库 '+discoverStats.pending+' 条'"></span>
             </div>
+            <button x-show="contentTab==='discover'" @click="refreshDiscover()" :disabled="discoverLoading" class="bg-brand-600 hover:bg-brand-700 disabled:bg-gray-300 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition">
+                <span x-show="discoverLoading" class="spinner inline-block mr-1" style="width:12px;height:12px;border-width:2px;vertical-align:middle"></span>
+                <span x-text="discoverLoading?'刷新中...':'刷新热榜'"></span>
+            </button>
+        </div>
 
-            <!-- 文件上传入库 -->
-            <div class="bg-white rounded-xl border border-gray-100 p-5 mb-4">
-                <div class="text-xs font-medium text-gray-700 mb-3">或上传文件 — 支持 PDF / 图片 / 音频</div>
-                <div class="border-2 border-dashed border-gray-200 rounded-xl p-8 text-center cursor-pointer hover:border-brand-400 hover:bg-brand-50/30 transition"
-                     @click="$refs.fileInput.click()"
-                     @dragover.prevent="$el.classList.add('border-brand-400','bg-brand-50/30')"
-                     @dragleave.prevent="$el.classList.remove('border-brand-400','bg-brand-50/30')"
-                     @drop.prevent="$el.classList.remove('border-brand-400','bg-brand-50/30');handleFileDrop($event)">
-                    <div class="text-2xl mb-2">📎</div>
-                    <div class="text-sm text-gray-500">拖拽文件到这里，或 <span class="text-brand-600 font-medium">点击选择</span></div>
-                    <div class="text-[10px] text-gray-400 mt-1">PDF (.pdf) · 图片 (.jpg .png .webp) · 音频 (.mp3 .m4a .wav)</div>
-                    <input type="file" x-ref="fileInput" class="hidden" accept=".pdf,.jpg,.jpeg,.png,.webp,.mp3,.m4a,.wav,.ogg,.flac"
-                           @change="handleFileUpload($event)">
-                </div>
-                <div x-show="uploadLoading" class="mt-3 flex items-center gap-2 text-sm text-gray-500">
-                    <div class="spinner"></div>
-                    <span x-text="uploadStatus||'正在处理...'"></span>
-                </div>
-            </div>
-
-            <!-- 入库队列 -->
-            <div x-show="ingestQueue.length" class="space-y-3">
-                <div class="text-xs font-medium text-gray-500 mb-1">入库队列</div>
-                <template x-for="(task,ti) in ingestQueue" :key="task.id">
-                    <div class="bg-white rounded-xl border p-4" :class="task.status==='done'?(task.success?'border-green-200':'border-red-200'):(task.status==='running'?'border-brand-200':'border-gray-100')">
-                        <!-- URL -->
-                        <div class="flex items-center gap-2 mb-2">
-                            <span x-show="task.status==='waiting'" class="text-gray-400 text-xs">⏳</span>
-                            <span x-show="task.status==='running'" class="spinner" style="width:14px;height:14px;border-width:2px"></span>
-                            <span x-show="task.status==='done'&&task.success" class="text-green-500 text-sm">✓</span>
-                            <span x-show="task.status==='done'&&!task.success" class="text-red-500 text-sm">✗</span>
-                            <span class="text-xs text-gray-500 truncate flex-1" x-text="task.url"></span>
-                        </div>
-                        <!-- 进度条 (运行中) -->
-                        <div x-show="task.status==='running'" class="mb-2">
-                            <div class="w-full bg-gray-100 rounded-full h-1.5">
-                                <div class="bg-brand-500 h-1.5 rounded-full transition-all duration-500" :style="'width:'+task.progress+'%'"></div>
-                            </div>
-                        </div>
-                        <!-- 阶段详情 -->
-                        <div x-show="task.stages.length" class="space-y-1 mb-2">
-                            <template x-for="(s,si) in task.stages" :key="si">
-                                <div class="flex items-center gap-1.5 text-[11px]">
-                                    <span x-show="s.status==='running'" class="spinner" style="width:10px;height:10px;border-width:1.5px"></span>
-                                    <span x-show="s.status==='ok'||s.status==='skip'||s.status==='queued'||s.status==='duplicate'" class="text-green-500 text-[10px]">✓</span>
-                                    <span x-show="s.status==='error'" class="text-red-500 text-[10px]">✗</span>
-                                    <span x-show="s.status==='waiting'" class="text-gray-300 text-[10px]">○</span>
-                                    <span class="text-gray-600" x-text="s.message"></span>
-                                </div>
-                            </template>
-                        </div>
-                        <!-- 完成结果 -->
-                        <div x-show="task.status==='done'&&task.success" class="mt-2">
-                            <div class="flex items-center gap-2 flex-wrap">
-                                <span @click="openDetailByFilepath(task.result?.file_path||'')" class="text-xs text-brand-600 font-medium cursor-pointer hover:underline" x-text="task.result?.title||'查看详情'"></span>
-                                <template x-for="t in (task.result?.tags||[])" :key="t"><span class="tag bg-green-100 text-green-700" x-text="t"></span></template>
-                            </div>
-                        </div>
-                        <div x-show="task.status==='done'&&!task.success" class="text-xs text-red-500 mt-1" x-text="task.error||'入库失败'"></div>
+        <!-- 手动入库 Tab -->
+        <div x-show="contentTab==='ingest'" class="flex-1 overflow-y-auto">
+            <div class="p-5 max-w-3xl mx-auto">
+                <p class="text-xs text-gray-500 mb-3">粘贴链接，自动完成抓取 → 清洗 → 落库 → Wiki 编译。可连续添加，自动排队。</p>
+                <div class="bg-white rounded-xl border border-gray-100 p-5 mb-4">
+                    <div class="flex gap-2">
+                        <input x-model="ingestUrl" type="text" placeholder="粘贴链接或分享文本（自动提取URL）"
+                            class="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"
+                            @keydown.enter="queueIngest()">
+                        <button @click="queueIngest()" :disabled="!ingestUrl.trim()"
+                            class="bg-brand-600 hover:bg-brand-700 disabled:bg-gray-300 text-white px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition">入库</button>
                     </div>
-                </template>
+                    <label class="flex items-center gap-1.5 mt-2 cursor-pointer select-none">
+                        <input type="checkbox" x-model="ingestForce" class="w-3.5 h-3.5 accent-brand-500">
+                        <span class="text-xs text-gray-500">强制重新入库</span>
+                    </label>
+                </div>
+                <div class="bg-white rounded-xl border border-gray-100 p-5 mb-4">
+                    <div class="text-xs font-medium text-gray-700 mb-3">或上传文件 — 支持 PDF / 图片 / 音频</div>
+                    <div class="border-2 border-dashed border-gray-200 rounded-xl p-8 text-center cursor-pointer hover:border-brand-400 hover:bg-brand-50/30 transition"
+                         @click="$refs.fileInput.click()"
+                         @dragover.prevent="$el.classList.add('border-brand-400','bg-brand-50/30')"
+                         @dragleave.prevent="$el.classList.remove('border-brand-400','bg-brand-50/30')"
+                         @drop.prevent="$el.classList.remove('border-brand-400','bg-brand-50/30');handleFileDrop($event)">
+                        <div class="text-2xl mb-2">📎</div>
+                        <div class="text-sm text-gray-500">拖拽文件到这里，或 <span class="text-brand-600 font-medium">点击选择</span></div>
+                        <div class="text-[10px] text-gray-400 mt-1">PDF · 图片 · 音频</div>
+                        <input type="file" x-ref="fileInput" class="hidden" accept=".pdf,.jpg,.jpeg,.png,.webp,.mp3,.m4a,.wav,.ogg,.flac"
+                               @change="handleFileUpload($event)">
+                    </div>
+                </div>
+                <div x-show="ingestQueue.length" class="space-y-3">
+                    <div class="text-xs font-medium text-gray-500 mb-1">入库队列</div>
+                    <template x-for="(task,ti) in ingestQueue" :key="task.id">
+                        <div class="bg-white rounded-xl border p-4" :class="task.status==='done'?(task.success?'border-green-200':'border-red-200'):(task.status==='running'?'border-brand-200':'border-gray-100')">
+                            <div class="flex items-center gap-2 mb-2">
+                                <span x-show="task.status==='waiting'" class="text-gray-400 text-xs">⏳</span>
+                                <span x-show="task.status==='running'" class="spinner" style="width:14px;height:14px;border-width:2px"></span>
+                                <span x-show="task.status==='done'&&task.success" class="text-green-500 text-sm">✓</span>
+                                <span x-show="task.status==='done'&&!task.success" class="text-red-500 text-sm">✗</span>
+                                <span class="text-xs text-gray-500 truncate flex-1" x-text="task.url"></span>
+                            </div>
+                            <div x-show="task.status==='running'" class="mb-2">
+                                <div class="w-full bg-gray-100 rounded-full h-1.5">
+                                    <div class="bg-brand-500 h-1.5 rounded-full transition-all duration-500" :style="'width:'+task.progress+'%'"></div>
+                                </div>
+                            </div>
+                            <div x-show="task.stages.length" class="space-y-1 mb-2">
+                                <template x-for="(s,si) in task.stages" :key="si">
+                                    <div class="flex items-center gap-1.5 text-[11px]">
+                                        <span x-show="s.status==='running'" class="spinner" style="width:10px;height:10px;border-width:1.5px"></span>
+                                        <span x-show="s.status==='ok'||s.status==='skip'||s.status==='queued'||s.status==='duplicate'" class="text-green-500 text-[10px]">✓</span>
+                                        <span x-show="s.status==='error'" class="text-red-500 text-[10px]">✗</span>
+                                        <span x-show="s.status==='waiting'" class="text-gray-300 text-[10px]">○</span>
+                                        <span class="text-gray-600" x-text="s.message"></span>
+                                    </div>
+                                </template>
+                            </div>
+                            <div x-show="task.status==='done'&&task.success" class="mt-2">
+                                <div class="flex items-center gap-2 flex-wrap">
+                                    <span @click="openDetailByFilepath(task.result?.file_path||'')" class="text-xs text-brand-600 font-medium cursor-pointer hover:underline" x-text="task.result?.title||'查看详情'"></span>
+                                    <template x-for="t in (task.result?.tags||[])" :key="t"><span class="tag bg-green-100 text-green-700" x-text="t"></span></template>
+                                </div>
+                            </div>
+                            <div x-show="task.status==='done'&&!task.success" class="text-xs text-red-500 mt-1" x-text="task.error||'入库失败'"></div>
+                        </div>
+                    </template>
+                </div>
             </div>
         </div>
+
+        <!-- 热榜发现 Tab -->
+        <div x-show="contentTab==='discover'" class="flex-1 overflow-y-auto">
+            <div class="p-5">
+                <div class="bg-gray-50 rounded-lg p-3 mb-4">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="text-gray-500 text-xs w-12">状态</span>
+                        <div class="flex gap-1.5">
+                            <button @click="discoverFilter.status='pending';loadDiscoverItems()"
+                                :class="discoverFilter.status==='pending'?'bg-brand-600 text-white':'bg-white text-gray-600 hover:bg-gray-100'"
+                                class="px-3 py-1 rounded text-xs font-medium transition border border-transparent"
+                                :class="discoverFilter.status!=='pending'?'border-gray-200':''">待入库</button>
+                            <button @click="discoverFilter.status='ingested';loadDiscoverItems()"
+                                :class="discoverFilter.status==='ingested'?'bg-brand-600 text-white':'bg-white text-gray-600 hover:bg-gray-100'"
+                                class="px-3 py-1 rounded text-xs font-medium transition border border-transparent"
+                                :class="discoverFilter.status!=='ingested'?'border-gray-200':''">已入库</button>
+                            <button @click="discoverFilter.status='ignored';loadDiscoverItems()"
+                                :class="discoverFilter.status==='ignored'?'bg-brand-600 text-white':'bg-white text-gray-600 hover:bg-gray-100'"
+                                class="px-3 py-1 rounded text-xs font-medium transition border border-transparent"
+                                :class="discoverFilter.status!=='ignored'?'border-gray-200':''">已忽略</button>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="text-gray-500 text-xs w-12">平台</span>
+                        <div class="flex flex-wrap gap-1.5">
+                            <button @click="discoverFilter.source='';loadDiscoverItems()"
+                                :class="discoverFilter.source===''?'bg-gray-800 text-white':'bg-white text-gray-600 hover:bg-gray-100'"
+                                class="px-2.5 py-1 rounded text-xs transition border border-transparent"
+                                :class="discoverFilter.source!==''?'border-gray-200':''">全部</button>
+                            <template x-for="s in discoverSources" :key="s">
+                                <button @click="discoverFilter.source=s;loadDiscoverItems()"
+                                    :class="discoverFilter.source===s?'bg-gray-800 text-white':'bg-white text-gray-600 hover:bg-gray-100'"
+                                    class="px-2.5 py-1 rounded text-xs transition border border-transparent"
+                                    :class="discoverFilter.source!==s?'border-gray-200':''" x-text="s"></button>
+                            </template>
+                        </div>
+                    </div>
+                </div>
+                <div class="space-y-2">
+                    <template x-for="item in discoverItems" :key="item.id">
+                        <div class="bg-white rounded-lg border border-gray-100 p-4 hover:border-brand-200 transition">
+                            <div class="flex items-start justify-between gap-3">
+                                <div class="flex-1 min-w-0">
+                                    <div class="flex items-center gap-2 mb-1">
+                                        <span class="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-700" x-text="item.source"></span>
+                                        <span x-show="item.score" class="text-[10px] text-gray-400" x-text="'热度 '+item.score"></span>
+                                        <span x-show="item.published_at" class="text-[10px] text-gray-400" x-text="formatDiscoverTime(item.published_at)"></span>
+                                        <span x-show="item.status==='ingested'" class="text-[10px] text-green-600">✓ 已入库</span>
+                                        <span x-show="item.status==='ignored'" class="text-[10px] text-gray-400">已忽略</span>
+                                    </div>
+                                    <a :href="item.url" target="_blank" class="text-sm font-medium text-gray-800 hover:text-brand-600 line-clamp-2" x-text="item.title"></a>
+                                    <p x-show="item.summary" class="text-xs text-gray-500 mt-1 line-clamp-2" x-text="item.summary"></p>
+                                </div>
+                                <div class="flex gap-1 flex-shrink-0" x-show="item.status==='pending'">
+                                    <button @click="ingestDiscoverItem(item)" class="bg-green-500 hover:bg-green-600 text-white px-2.5 py-1 rounded text-xs font-medium transition">入库</button>
+                                    <button @click="ignoreDiscoverItem(item.id)" class="bg-gray-100 hover:bg-gray-200 text-gray-600 px-2.5 py-1 rounded text-xs transition">忽略</button>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                    <div x-show="discoverItems.length===0 && !discoverLoading" class="text-center py-12">
+                        <div class="text-gray-400 text-sm">暂无内容，点击"刷新热榜"获取最新内容</div>
+                    </div>
+                </div>
+                <div x-show="discoverTotal > discoverPageSize" class="flex justify-center gap-2 mt-4">
+                    <button @click="discoverPage--; loadDiscoverItems()" :disabled="discoverPage <= 1"
+                        class="px-3 py-1.5 bg-white border rounded-lg text-xs disabled:opacity-50">上一页</button>
+                    <span class="px-3 py-1.5 text-gray-500 text-xs" x-text="'第 '+discoverPage+' 页'"></span>
+                    <button @click="discoverPage++; loadDiscoverItems()" :disabled="discoverPage * discoverPageSize >= discoverTotal"
+                        class="px-3 py-1.5 bg-white border rounded-lg text-xs disabled:opacity-50">下一页</button>
+                </div>
+            </div>
+        </div>
+        <div x-show="discoverToast.show" x-transition class="fixed bottom-4 right-4 bg-gray-800 text-white px-4 py-2 rounded-lg shadow-lg text-sm" x-text="discoverToast.message"></div>
     </div>
 
     <!-- ===== 搜索 ===== -->
     <div x-show="page==='search'" x-cloak class="fade-in">
         <div class="h-12 flex items-center px-5 border-b border-gray-100 bg-white/80 backdrop-blur"><h1 class="font-semibold text-gray-800 text-sm">知识搜索</h1></div>
         <div class="p-5 max-w-3xl mx-auto">
-            <div class="flex gap-2 mb-2 relative">
+            <div class="flex gap-2 mb-4 relative">
                 <input x-model="searchQuery" type="text" placeholder="用自然语言提问..." class="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white"
                     @keydown.enter="doSearch()" :disabled="searchLoading" @focus="searchHistoryOpen=true" @blur="setTimeout(()=>searchHistoryOpen=false,200)">
                 <button @click="doSearch()" :disabled="searchLoading||!searchQuery.trim()" class="bg-brand-600 hover:bg-brand-700 disabled:bg-gray-300 text-white px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition">
@@ -517,7 +580,6 @@
                     <span x-text="searchLoading?'检索中...':'搜索'"></span>
                 </button>
             </div>
-            <!-- 搜索历史 -->
             <div x-show="searchHistoryOpen&&searchHistory.length>0&&!searchResult" x-transition class="bg-white border border-gray-100 rounded-lg shadow-sm mb-3 overflow-hidden">
                 <div class="flex items-center justify-between px-3 py-2 border-b border-gray-50">
                     <span class="text-xs text-gray-400">搜索历史</span>
@@ -530,13 +592,15 @@
                     </div>
                 </template>
             </div>
-            <div class="mb-5"></div>
             <div x-show="searchResult" class="fade-in space-y-3">
-                <!-- 反馈按钮 -->
                 <div x-show="searchResult?.answer" class="flex items-center justify-end gap-2 mb-1">
-                    <span class="text-[10px] text-gray-400">回答是否有帮助?</span>
-                    <button @click="submitFeedback('good')" class="text-xs px-2 py-1 rounded-lg border border-green-200 text-green-600 hover:bg-green-50 transition">👍 有帮助</button>
-                    <button @click="submitFeedback('bad')" class="text-xs px-2 py-1 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 transition">👎 没帮助</button>
+                    <template x-if="!feedbackSubmitted">
+                        <div class="flex items-center gap-2">
+                            <span class="text-[10px] text-gray-400">回答是否有帮助?</span>
+                            <button @click="submitFeedback('good')" class="text-xs px-2 py-1 rounded-lg border border-green-200 text-green-600 hover:bg-green-50 transition">👍 有帮助</button>
+                            <button @click="submitFeedback('bad')" class="text-xs px-2 py-1 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 transition">👎 没帮助</button>
+                        </div>
+                    </template>
                 </div>
                 <div class="bg-white rounded-xl border border-gray-100 p-5">
                     <h3 class="font-semibold text-gray-800 text-sm mb-2">💡 AI 回答</h3>
@@ -546,7 +610,6 @@
                     <div @click="openDetailByTitle(src.title,src.source_url)" class="bg-white rounded-lg border border-gray-100 p-3 flex items-center gap-3 cursor-pointer hover:border-brand-300 hover:bg-brand-50/30 transition group">
                         <div class="w-5 h-5 bg-brand-50 text-brand-600 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0" x-text="i+1"></div>
                         <div class="flex-1 min-w-0"><div class="text-xs font-medium text-gray-700 group-hover:text-brand-600 truncate" x-text="src.title"></div></div>
-                        <span class="text-[10px] text-gray-400 flex-shrink-0" x-text="src.match_type||('距离:'+src.distance)"></span>
                         <svg class="w-3.5 h-3.5 text-gray-300 group-hover:text-brand-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
                     </div>
                 </template>
@@ -557,8 +620,8 @@
     <!-- ===== Wiki 详情页 ===== -->
     <div x-show="page==='wikiDetail'" x-cloak class="fade-in">
         <div class="h-12 flex items-center justify-between px-5 border-b border-gray-100 bg-white/80 backdrop-blur">
-            <button @click="page='graph';wikiEditMode=false" class="text-xs text-brand-600 hover:text-brand-800 flex items-center gap-1">
-                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>返回图谱
+            <button @click="page='knowledge';wikiEditMode=false" class="text-xs text-brand-600 hover:text-brand-800 flex items-center gap-1">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>返回
             </button>
             <div class="flex gap-2">
                 <button x-show="!wikiEditMode" @click="deleteWikiPage()" class="text-xs text-gray-400 hover:text-red-500 flex items-center gap-1 px-3 py-1.5 rounded-lg hover:bg-red-50 transition">
@@ -959,14 +1022,14 @@ const CAT_NODE_COLORS={
 
 function app(){
     return {
-        page:'graph',prevPage:'',dark:false,sidebarCollapsed:false,showPanel:true,tagExpanded:false,
+        page:'knowledge',prevPage:'',dark:false,sidebarCollapsed:false,showPanel:true,tagExpanded:false,
+        knowledgeView:'graph',contentTab:'ingest',
         stats:{knowledge_files:0,total_chunks:0},
         categories:[],knowledgeList:[],filteredList:[],activeCategory:'',
         tagStats:[],timeline:[],
         detailData:null,detailLoading:false,editMode:false,editContent:'',editSaving:false,
         hoveredNode:null,tooltipX:0,tooltipY:0,
         ingestUrl:'',ingestQueue:[],ingestQueueId:0,ingestProcessing:false,ingestForce:false,
-        uploadLoading:false,uploadStatus:'',
         searchQuery:'',searchLoading:false,searchResult:null,
         searchHistory:JSON.parse(localStorage.getItem('bk_search_history')||'[]'),searchHistoryOpen:false,
         quickSearch:'',simulation:null,
@@ -974,16 +1037,21 @@ function app(){
         wikiInspect:null,wikiLogContent:'',wikiGraphData:null,graphMinCount:2,
         wikiHoveredNode:null,wikiTooltipX:0,wikiTooltipY:0,wikiShowList:true,selectedTagNode:null,
         wikiEditMode:false,wikiEditContent:'',wikiEditSaving:false,
-        feedbackSubmitted:false,
+        feedbackSubmitted:false,feedbackRating:'',
         taxCategories:[],newCatName:'',
         showSubscriptions:false,subscriptions:[],subConceptName:'',
         showWelcome:!localStorage.getItem('bk_welcomed'),
+        // 发现模块
+        discoverItems:[],discoverLoading:false,discoverPage:1,discoverPageSize:20,discoverTotal:0,
+        discoverStats:{pending:0,ingested:0,ignored:0},
+        discoverSources:[],discoverFilter:{status:'pending',source:''},
+        discoverToast:{show:false,message:''},
 
         async init(){
             await Promise.all([this.loadStats(),this.loadCategories(),this.loadKnowledge(),this.loadTags(),this.loadTimeline(),this.loadWikiPages(),this.loadWikiTree(),this.loadWikiGraph()]);
         },
         dismissWelcome(){this.showWelcome=false;localStorage.setItem('bk_welcomed','1')},
-        setPage(p){this.prevPage=this.page;this.page=p;if(p==='graph'){this.loadWikiPages();this.loadWikiTree();this.loadWikiGraph()}},
+        setPage(p){this.prevPage=this.page;this.page=p;if(p==='knowledge'){this.loadWikiPages();this.loadWikiTree();this.loadWikiGraph();this.loadKnowledge()}else if(p==='content'){if(this.contentTab==='discover'){this.loadDiscoverItems();this.loadDiscoverStats()}}},
         async loadStats(){try{this.stats=await(await fetch('/stats')).json()}catch(e){}},
         async loadCategories(){try{const d=await(await fetch('/api/categories')).json();this.categories=d.categories||[]}catch(e){}},
         async loadKnowledge(){try{const d=await(await fetch('/api/knowledge')).json();this.knowledgeList=d.items||[];this.filteredList=this.knowledgeList}catch(e){}},
@@ -1131,6 +1199,18 @@ function app(){
             if(sourceUrl){window.open(sourceUrl,'_blank')}
         },
         async saveEdit(){if(!this.editContent.trim()||this.editSaving)return;this.editSaving=true;try{const fn=this.detailData?.filename;const r=await fetch('/api/knowledge/'+encodeURIComponent(fn),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:this.editContent})});if(r.ok){this.detailData.content=this.editContent;this.editMode=false}}catch(e){}this.editSaving=false},
+        async deleteKnowledge(){
+            if(!confirm('确定要删除这篇文章吗？此操作不可恢复。'))return;
+            const fn=this.detailData?.filename;
+            if(!fn)return;
+            try{
+                const r=await fetch('/api/knowledge/'+encodeURIComponent(fn),{method:'DELETE'});
+                if(r.ok){
+                    await Promise.all([this.loadKnowledge(),this.loadStats(),this.loadWikiPages(),this.loadWikiGraph()]);
+                    this.page=this.prevPage||'index';
+                }else{const e=await r.json();alert('删除失败: '+(e.detail||'未知错误'))}
+            }catch(e){alert('删除失败: '+e.message)}
+        },
         formatSourceTitle(fn){return fn.replace(/^\d{6}_[a-zA-Z0-9]+_/,'').replace(/\.md$/,'').replace(/_/g,' ')},
         guessPlatform(fn){if(fn.includes('公众号')||fn.includes('wechat'))return'wechat';if(fn.includes('小红书')||fn.includes('xiaohongshu'))return'xiaohongshu';return'general'},
         async doIngest(){/* legacy, replaced by queueIngest */},
@@ -1150,6 +1230,8 @@ function app(){
             const task=this.ingestQueue.find(t=>t.status==='waiting');
             if(!task)return;
             this.ingestProcessing=true;
+            // 文件上传走单独的处理函数
+            if(task.isFile){await this._processFileUpload(task);return}
             task.status='running';
             try{
                 const resp=await fetch('/ingest/stream',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:task.url,force:!!task.force})});
@@ -1184,15 +1266,44 @@ function app(){
         handleFileDrop(e){const f=e.dataTransfer?.files?.[0];if(f)this.uploadFile(f)},
         handleFileUpload(e){const f=e.target?.files?.[0];if(f)this.uploadFile(f)},
         async uploadFile(file){
-            this.uploadLoading=true;this.uploadStatus='正在上传 '+file.name+'...';this.ingestResult=null;
-            const fd=new FormData();fd.append('file',file);
+            // 加入入库队列，复用 SSE 流式进度
+            this.ingestQueueId++;
+            const taskId=this.ingestQueueId;
+            this.ingestQueue.unshift({id:taskId,url:file.name,force:this.ingestForce,status:'waiting',progress:0,stages:[],result:null,success:false,error:'',isFile:true,file:file});
+            this._processQueue();
+        },
+        async _processFileUpload(task){
+            task.status='running';task.progress=5;
+            const fd=new FormData();fd.append('file',task.file);fd.append('force',task.force?'true':'false');
             try{
-                this.uploadStatus='正在解析和处理...';
-                const r=await fetch('/ingest/upload',{method:'POST',body:fd});
-                if(r.ok){this.ingestResult=await r.json();await Promise.all([this.loadKnowledge(),this.loadStats(),this.loadWikiPages(),this.loadWikiGraph()])}
-                else{const e=await r.json();this.ingestResult={success:false,error:e.detail||'上传失败'}}
-            }catch(e){this.ingestResult={success:false,error:e.message}}
-            this.uploadLoading=false;this.uploadStatus='';
+                const resp=await fetch('/ingest/upload/stream',{method:'POST',body:fd});
+                if(!resp.ok){const e=await resp.json();throw new Error(e.detail||'上传失败')}
+                const reader=resp.body.getReader();const decoder=new TextDecoder();let buffer='';
+                while(true){
+                    const{done,value}=await reader.read();if(done)break;
+                    buffer+=decoder.decode(value,{stream:true});const lines=buffer.split('\n');buffer=lines.pop();
+                    for(const line of lines){
+                        if(!line.startsWith('data: '))continue;
+                        try{
+                            const data=JSON.parse(line.slice(6));
+                            if(data.progress)task.progress=data.progress;
+                            if(data.stage&&data.message){
+                                const existing=task.stages.find(s=>s.stage===data.stage);
+                                if(existing){existing.status=data.status;existing.message=data.message}
+                                else{task.stages.push({stage:data.stage,status:data.status,message:data.message})}
+                            }
+                            if(data.stage==='done'){
+                                task.status='done';task.success=true;task.result=data.result;
+                                await Promise.all([this.loadKnowledge(),this.loadStats(),this.loadWikiPages(),this.loadWikiGraph()]);
+                            }
+                            if(data.stage==='error'||data.status==='error'){
+                                task.status='done';task.success=false;task.error=data.message||'处理失败';
+                            }
+                        }catch(e){}
+                    }
+                }
+            }catch(e){task.status='done';task.success=false;task.error=e.message}
+            finally{this.ingestProcessing=false;this._processQueue()}
         },
 
         // 样式工具
@@ -1281,7 +1392,7 @@ function app(){
             if(this.feedbackSubmitted)return;
             try{
                 await fetch('/api/feedback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:this.searchQuery,answer:this.searchResult?.answer||'',rating})});
-                this.feedbackSubmitted=true;setTimeout(()=>{this.feedbackSubmitted=false},3000);
+                this.feedbackRating=rating;this.feedbackSubmitted=true;setTimeout(()=>{this.feedbackSubmitted=false;this.feedbackRating=''},3000);
             }catch(e){}
         },
 
@@ -1302,6 +1413,94 @@ function app(){
                 const r=await fetch('/api/wiki/subscriptions/'+encodeURIComponent(name),{method:'DELETE'});
                 if(r.ok)await this.loadSubscriptions();
             }catch(e){}
+        },
+
+        // ===== 发现模块 =====
+        async loadDiscoverItems(){
+            this.discoverLoading = true;
+            try {
+                const params = new URLSearchParams({
+                    status: this.discoverFilter.status,
+                    page: this.discoverPage,
+                    page_size: this.discoverPageSize,
+                    source: this.discoverFilter.source
+                });
+                const r = await fetch('/api/discover?' + params);
+                const d = await r.json();
+                this.discoverItems = d.items || [];
+                this.discoverTotal = d.total || 0;
+                this.discoverSources = d.sources || [];
+            } catch(e) {
+                this.discoverToast = {show: true, message: '加载失败: ' + e.message};
+                setTimeout(() => this.discoverToast.show = false, 3000);
+            }
+            this.discoverLoading = false;
+        },
+        async loadDiscoverStats(){
+            try {
+                const r = await fetch('/api/discover/stats');
+                this.discoverStats = await r.json();
+            } catch(e) {}
+        },
+        async refreshDiscover(){
+            this.discoverLoading = true;
+            try {
+                const r = await fetch('/api/discover/refresh', {method: 'POST'});
+                const d = await r.json();
+                this.discoverToast = {show: true, message: d.message || '刷新完成'};
+                setTimeout(() => this.discoverToast.show = false, 3000);
+                await this.loadDiscoverItems();
+                await this.loadDiscoverStats();
+            } catch(e) {
+                this.discoverToast = {show: true, message: '刷新失败'};
+                setTimeout(() => this.discoverToast.show = false, 3000);
+            }
+            this.discoverLoading = false;
+        },
+        async ingestDiscoverItem(item){
+            try {
+                const r = await fetch('/api/discover/ingest', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({id: item.id})
+                });
+                const d = await r.json();
+                if(d.success){
+                    this.discoverToast = {show: true, message: '入库成功'};
+                    setTimeout(() => this.discoverToast.show = false, 3000);
+                    await this.loadDiscoverItems();
+                    await this.loadDiscoverStats();
+                    await this.loadStats();
+                } else {
+                    this.discoverToast = {show: true, message: d.error || '入库失败'};
+                    setTimeout(() => this.discoverToast.show = false, 3000);
+                }
+            } catch(e) {
+                this.discoverToast = {show: true, message: '入库失败'};
+                setTimeout(() => this.discoverToast.show = false, 3000);
+            }
+        },
+        async ignoreDiscoverItem(id){
+            try {
+                await fetch('/api/discover/ignore', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({id})
+                });
+                await this.loadDiscoverItems();
+                await this.loadDiscoverStats();
+            } catch(e) {}
+        },
+        formatDiscoverTime(dateStr) {
+            if (!dateStr) return '';
+            const d = new Date(dateStr);
+            const now = new Date();
+            const diff = now - d;
+            const days = Math.floor(diff / 86400000);
+            if (days === 0) return '今天';
+            if (days === 1) return '昨天';
+            if (days < 7) return days + '天前';
+            return (d.getMonth() + 1) + '/' + d.getDate();
         },
     }
 }

@@ -25,6 +25,8 @@ sources:
 [来源: 260409_GqQS668f_Claude_Code：终端中的编程助手.md]
 
 ## 相关概念
+- [[Claude]]
+- [[Claude Code]]
 
 - [[编程工具]]
 - [[自然语言处理]]

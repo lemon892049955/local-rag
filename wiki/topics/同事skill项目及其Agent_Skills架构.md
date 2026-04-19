@@ -34,6 +34,10 @@ sources:
 [来源: 260409_DZzwKmPn_深度解析GitHub上的'同事.skill'项目及其Agent_Skills架构.md]
 
 ## 相关概念
+- [[OpenClaw]]
+- [[Cursor]]
+- [[Codex]]
+- [[Anthropic]]
 - [[Github开源项目动态]]
 
 - [[AI能力扩展标准]]

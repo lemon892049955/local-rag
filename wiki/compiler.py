@@ -260,16 +260,60 @@ _(后续更新在此追加)_
 ```"""
 
 
+# LLM client 单例（避免每次编译 new OpenAI）
+_compiler_client = None
+_compiler_model = None
+
+
+def _get_compiler_client():
+    global _compiler_client, _compiler_model
+    if _compiler_client is None:
+        config = get_llm_config()
+        _compiler_client = OpenAI(api_key=config["api_key"], base_url=config["base_url"])
+        _compiler_model = config["model"]
+    return _compiler_client, _compiler_model
+
+
 class WikiCompiler:
     """Wiki 编译引擎"""
 
     def __init__(self):
-        config = get_llm_config()
-        self.client = OpenAI(
-            api_key=config["api_key"],
-            base_url=config["base_url"],
-        )
-        self.model = config["model"]
+        self.client, self.model = _get_compiler_client()
+        self._indexer = None
+
+    @property
+    def indexer(self):
+        """复用全局 VectorIndexer 单例"""
+        if self._indexer is None:
+            from main import get_indexer
+            self._indexer = get_indexer()
+        return self._indexer
+
+    async def _llm_call(self, messages: list, temperature: float = 0.3,
+                        max_tokens: int = 2000, retries: int = 3):
+        """带重试的 LLM 调用，处理 rate limit (429) 和临时错误"""
+        import asyncio
+        for attempt in range(retries):
+            try:
+                response = await asyncio.to_thread(
+                    self.client.chat.completions.create,
+                    model=self.model,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+                return response
+            except Exception as e:
+                err_str = str(e)
+                is_rate_limit = "429" in err_str or "rate" in err_str.lower()
+                if is_rate_limit and attempt < retries - 1:
+                    wait = 10 * (attempt + 1)
+                    logger.warning(f"LLM rate limit，{wait}s 后重试 ({attempt+1}/{retries})")
+                    await asyncio.sleep(wait)
+                elif attempt < retries - 1:
+                    await asyncio.sleep(3)
+                else:
+                    raise
 
     async def compile(self, article_path: Path) -> dict:
         """编译单篇文章到 Wiki
@@ -607,10 +651,8 @@ _(后续更新在此追加)_
         )
 
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
+            response = await self._llm_call(
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.3,
                 max_tokens=1500,
             )
             raw = response.choices[0].message.content.strip()
@@ -640,10 +682,8 @@ _(后续更新在此追加)_
         )
 
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
+            response = await self._llm_call(
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.3,
                 max_tokens=1500,
             )
             raw = response.choices[0].message.content.strip()
@@ -667,10 +707,8 @@ _(后续更新在此追加)_
         )
 
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
+            response = await self._llm_call(
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.3,
                 max_tokens=3000,
             )
             result = response.choices[0].message.content.strip()
@@ -694,10 +732,8 @@ _(后续更新在此追加)_
         )
 
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
+            response = await self._llm_call(
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.3,
                 max_tokens=1500,
             )
             result = response.choices[0].message.content.strip()
@@ -740,8 +776,7 @@ _(后续更新在此追加)_
             [{"path": "topics/xxx.md", "title": "...", "similarity": 0.89, "preview": "..."}]
         """
         try:
-            from retrieval.indexer import VectorIndexer
-            indexer = VectorIndexer()
+            indexer = self.indexer
 
             # 用文章前 2000 字做语义检索
             hits = indexer.search(article_text[:2000], top_k=8)
@@ -792,8 +827,7 @@ _(后续更新在此追加)_
             False = 与已有内容过于相似，应跳过
         """
         try:
-            from retrieval.indexer import VectorIndexer
-            indexer = VectorIndexer()
+            indexer = self.indexer
 
             # 文档模式生成 embedding
             indexer.embedding_fn.set_query_mode(False)
@@ -822,8 +856,7 @@ _(后续更新在此追加)_
     def _index_affected_pages(self, page_paths: list[str]):
         """对编译影响的 Wiki 页面增量索引"""
         try:
-            from retrieval.indexer import VectorIndexer
-            indexer = VectorIndexer()
+            indexer = self.indexer
             for page_path in page_paths:
                 filepath = WIKI_DIR / page_path
                 if filepath.exists():
